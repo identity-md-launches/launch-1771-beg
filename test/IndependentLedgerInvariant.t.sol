@@ -50,9 +50,6 @@ contract IndependentLedgerHandler is Test {
     uint256 public expectedOpen = 1;
     uint256 public expectedCursor = 1;
     uint256 public expectedAutoClosed;
-    uint256 public expectedFailingSince;
-    uint256 public expectedUnrevealed;
-    bool public expectedRetired;
     uint256 public expectedEscrow;
     uint256 public expectedBank;
     uint256 public expectedBudget;
@@ -70,7 +67,7 @@ contract IndependentLedgerHandler is Test {
     uint256 public grades;
     uint256 public reveals;
     uint256 public refunds;
-    uint256 public retirements;
+    uint256 public sweepAttempts;
     uint256 private nonce;
 
     constructor(BegVault vault_, LaunchToken token_, MockIMD imd_, MockIntake intake_, uint256 key_) {
@@ -99,9 +96,7 @@ contract IndependentLedgerHandler is Test {
             uint256 batchId = stale ? expectedOpen + 1 : expectedOpen;
             BatchModel storage b = batches[batchId];
             bool closing = b.size == 19;
-            bytes memory failure = expectedRetired
-                ? abi.encodeWithSelector(BegVault.VaultRetired.selector)
-                : closing ? _closeFailure() : bytes("");
+            bytes memory failure = closing ? _closeFailure() : bytes("");
             if (failure.length != 0) {
                 uint256 beforeBalance = player.balance;
                 vm.prank(player);
@@ -146,9 +141,7 @@ contract IndependentLedgerHandler is Test {
     function _close(uint256 id, bool viaCursor) private {
         BatchModel storage b = batches[id];
         bytes memory failure;
-        if (expectedRetired) {
-            failure = abi.encodeWithSelector(BegVault.VaultRetired.selector);
-        } else if (
+        if (
             b.size == 0 || b.status != BegVault.Status.Open
                 || vm.getBlockTimestamp() < b.openedAt + 30 minutes
         ) {
@@ -265,8 +258,6 @@ contract IndependentLedgerHandler is Test {
             }
             assertTrue(vault.consumed(a.requestId));
             assertEq(vault.getBatch(id).rollBlock, vm.getBlockNumber() + 2);
-            expectedFailingSince = 0;
-            ++expectedUnrevealed;
             ++grades;
         }
     }
@@ -289,7 +280,7 @@ contract IndependentLedgerHandler is Test {
         }
         bool open = model.status == BegVault.Status.Open;
         uint256 deadline = open ? model.openedAt + 30 minutes + 24 hours : model.closedAt + 24 hours;
-        if (vm.getBlockTimestamp() < deadline && !(open && expectedRetired)) {
+        if (vm.getBlockTimestamp() < deadline) {
             vm.expectRevert(BegVault.TooEarly.selector);
             vault.expireBatch(id);
             return;
@@ -305,7 +296,6 @@ contract IndependentLedgerHandler is Test {
 
     function _markExpired(uint256 id, BatchModel storage model) private {
         model.status = BegVault.Status.Expired;
-        if (expectedFailingSince == 0) expectedFailingSince = vm.getBlockTimestamp();
         model.terminalDigest = keccak256(abi.encode(vault.getBatch(id)));
     }
 
@@ -377,7 +367,6 @@ contract IndependentLedgerHandler is Test {
         }
         model.status = BegVault.Status.Revealed;
         model.terminalDigest = keccak256(abi.encode(afterBatch));
-        --expectedUnrevealed;
         ++reveals;
     }
 
@@ -439,41 +428,24 @@ contract IndependentLedgerHandler is Test {
         }
     }
 
-    /// @dev The dead-man path: only after 30 days of oracle silence following an expiry, with every graded
-    ///      batch revealed, and only ever to the team's pull credit. Escrow is never part of the sweep.
-    function retire(uint256 actorSeed) public {
+    /// @dev The previous revision's `retire()` dead-man path swept the pool and banks to the team after an
+    ///      expiry and 30 quiet days; it was reported and removed. Whatever the oracle has or has not
+    ///      done, and however long ago, a sweep call from any actor (the team included) must fail
+    ///      without a fallback and leave the balances and the model untouched.
+    function attemptSweep(uint256 actorSeed) public {
         address actor = actors[actorSeed % ACTORS];
-        vm.prank(actor);
-        if (!expectedRetired) {
-            if (expectedFailingSince == 0 || vm.getBlockTimestamp() < expectedFailingSince + 30 days) {
-                vm.expectRevert(BegVault.OracleAlive.selector);
-                vault.retire();
-                return;
-            }
-            if (expectedUnrevealed != 0) {
-                vm.expectRevert(BegVault.InvalidBatchState.selector);
-                vault.retire();
-                return;
-            }
-        }
-        uint256 tokens = expectedFree;
-        uint256 eth = expectedBank + expectedBudget;
-        if (tokens == 0 && eth == 0) {
-            vm.expectRevert(BegVault.NothingToClaim.selector);
-            vault.retire();
-            return;
-        }
         uint256 beforeETH = address(vault).balance;
         uint256 beforeTokens = token.balanceOf(address(vault));
-        vault.retire();
-        assertEq(address(vault).balance, beforeETH, "retire transferred ETH");
-        assertEq(token.balanceOf(address(vault)), beforeTokens, "retire transferred tokens");
-        expectedRetired = true;
-        expectedFree = 0;
-        expectedBank = 0;
-        expectedBudget = 0;
-        _credit(actors[0], tokens, eth);
-        ++retirements;
+        vm.prank(actor);
+        (bool ok, bytes memory result) = address(vault).call(abi.encodeWithSignature("retire()"));
+        assertFalse(ok, "a retire() entry point exists");
+        assertEq(result.length, 0, "an unknown selector must not reach a fallback");
+        assertEq(address(vault).balance, beforeETH);
+        assertEq(token.balanceOf(address(vault)), beforeTokens);
+        assertEq(vault.vaultFreeBalance(), expectedFree);
+        assertEq(vault.jackpotBank(), expectedBank);
+        assertEq(vault.oracleBudget(), expectedBudget);
+        ++sweepAttempts;
     }
 
     function _credit(address actor, uint256 tokens, uint256 eth) private {
@@ -555,9 +527,6 @@ contract IndependentLedgerHandler is Test {
         assertEq(vault.nextToClose(), expectedCursor);
         assertEq(vault.autoClosed(), expectedAutoClosed);
         assertEq(vault.nextAttemptId(), entries.length + 1);
-        assertEq(vault.failingSince(), expectedFailingSince);
-        assertEq(vault.unrevealedGraded(), expectedUnrevealed);
-        assertEq(vault.retired(), expectedRetired);
         uint256 sizeSum;
         for (uint256 id = 1; id <= expectedOpen; ++id) {
             BatchModel storage model = batches[id];
@@ -669,7 +638,7 @@ contract IndependentLedgerInvariantTest is BegVaultBase {
         selectors[9] = handler.reveal.selector;
         selectors[10] = handler.refund.selector;
         selectors[11] = handler.claim.selector;
-        selectors[12] = handler.retire.selector;
+        selectors[12] = handler.attemptSweep.selector;
         targetSelector(FuzzSelector(address(handler), selectors));
         targetContract(address(handler));
     }
@@ -703,14 +672,14 @@ contract IndependentLedgerInvariantTest is BegVaultBase {
         handler.fund(1, 0.001 ether, 0);
         handler.fund(2, 123 ether, 2);
         handler.forceETH(17);
-        handler.retire(5); // OracleAlive: the oracle graded after the expiry.
+        handler.attemptSweep(5); // Nothing to sweep with, even after an expiry.
         handler.assertAssetsAndCredits();
         handler.assertOracleFunding();
         handler.assertLifecycle();
         afterInvariant();
     }
 
-    function testHandlerExercisesStaleBatchesByIdCloseAndRetirement() public {
+    function testHandlerExercisesStaleBatchesByIdCloseAndAQuietMonth() public {
         // Entries past the window open a new batch; the cursor still closes the stale one.
         vm.warp(vm.getBlockTimestamp() + 31 minutes);
         handler.enter(9, 2);
@@ -726,23 +695,26 @@ contract IndependentLedgerInvariantTest is BegVaultBase {
         handler.reveal(3, 2, keccak256("four hash"), false);
         handler.reveal(4, 3, keccak256("five hash"), false);
         handler.reveal(0, 1, keccak256("one hash"), false);
-        handler.retire(6); // OracleAlive: the grades above reset the failure clock.
+        handler.attemptSweep(6);
         handler.expire(1); // Batch 2, pending since setUp and long past its deadline.
-        vm.warp(vm.getBlockTimestamp() + 30 days - 1);
-        handler.retire(6); // OracleAlive: one second early.
-        vm.warp(vm.getBlockTimestamp() + 1);
-        handler.retire(7); // Oracle silence after the expiry with nothing left unrevealed.
-        assertTrue(vault.retired());
-        handler.enter(2, 1); // VaultRetired, atomically.
-        handler.close(); // VaultRetired.
-        handler.retire(8); // NothingToClaim: already swept.
+        uint256 pool = vault.vaultFreeBalance();
+        vm.warp(vm.getBlockTimestamp() + 30 days);
+        handler.attemptSweep(7); // Oracle silence after an expiry with nothing left unrevealed.
+        assertEq(vault.vaultFreeBalance(), pool, "a quiet month moved the prize pool");
         handler.fund(4, 55 ether, 2);
-        handler.retire(9); // Sweeps the late donation to the team.
+        handler.attemptSweep(0); // The team cannot take the late donation either.
+        assertEq(vault.vaultFreeBalance(), pool + 55 ether);
+        handler.enter(2, 1); // Play goes on: a new batch opens after the quiet month.
+        handler.close(); // BatchNotReady: it is seconds old.
+        vm.warp(vm.getBlockTimestamp() + 30 minutes);
+        handler.close();
         handler.assertAssetsAndCredits();
         handler.assertOracleFunding();
         handler.assertLifecycle();
         afterInvariant();
-        assertEq(token.balanceOf(address(vault)), 0);
+        assertGt(vault.vaultFreeBalance(), 0);
+        (uint128 teamTokens,) = vault.claimable(vault.team());
+        assertEq(teamTokens, 0);
     }
 
     function afterInvariant() public {

@@ -52,8 +52,6 @@ contract AdversarialLifecycleTest is BegVaultBase {
         }
         vm.expectRevert(BegVault.BatchNotReady.selector);
         vault.closeBatch();
-        vm.expectRevert(BegVault.OracleAlive.selector);
-        vault.retire();
         assertEq(vault.nextAttemptId(), 1);
         assertEq(vault.openBatchId(), 1);
         assertEq(vault.nextToClose(), 1);
@@ -416,73 +414,71 @@ contract AdversarialLifecycleTest is BegVaultBase {
         _assertSolvent();
     }
 
-    /// @dev `retire()` is the implementation's dead-man path. These assertions pin its guards and its
-    ///      accounting; the path itself is reported in .imd-findings.json as a deviation from the brief.
-    function testRetireRequiresThirtyDaysOfOracleSilenceAfterAnExpiryAndNoUnrevealedGrades() public {
+    /// @dev The previous revision had a `retire()` dead-man path that handed the pool to the team after an
+    ///      expiry and 30 quiet days. It was reported and removed. These cases pin the sequence that used
+    ///      to arm it: an unrevealed grade and an expiry followed by a month of silence must leave every
+    ///      balance where it was, with the graded batch still rolling against the whole pool afterwards.
+    function testAnExpiryFollowedByAQuietMonthLeavesAnUnrevealedGradeRollingAgainstTheWholePool() public {
+        uint256 pool = vault.vaultFreeBalance();
         _batch(2);
         _batch(1);
         _grade(1, 60);
         vm.warp(vm.getBlockTimestamp() + 24 hours);
-        vm.expectRevert(BegVault.OracleAlive.selector);
-        vault.retire();
         vault.expireBatch(2);
-        uint256 failingSince = vm.getBlockTimestamp();
-        assertEq(vault.failingSince(), failingSince);
-        vm.warp(failingSince + 30 days - 1);
-        vm.expectRevert(BegVault.OracleAlive.selector);
-        vault.retire();
-        vm.warp(failingSince + 30 days);
-        vm.expectRevert(BegVault.InvalidBatchState.selector);
-        vault.retire();
-        assertEq(vault.unrevealedGraded(), 1);
-        // A successful grade in the meantime resets the clock entirely.
+        vm.warp(vm.getBlockTimestamp() + 30 days);
+        (bool ok,) = address(vault).call(abi.encodeWithSignature("retire()"));
+        assertFalse(ok, "a retire() entry point exists");
+        (uint128 teamTokens, uint128 teamETH) = vault.claimable(TEAM);
+        assertEq(teamTokens, 0, "tokens credited to the team outside of a roll");
+        assertEq(teamETH, 2 * PRICE / 10, "the team only ever earns its tenth of a graded escrow");
+        assertEq(vault.vaultFreeBalance(), pool);
+        assertEq(vault.jackpotBank(), 2 * PRICE - 2 * (2 * PRICE / 10));
+        assertEq(vault.oracleBudget(), 2 * PRICE / 10);
+        assertEq(vault.escrowedETH(), PRICE, "an expired entry's escrow waits for its refund");
+        // The month-old grade still reveals, missing windows only forfeit tiers, and the pool is intact.
+        _reveal(1, keccak256("batch one hash"));
+        assertEq(uint256(vault.getBatch(1).status), uint256(BegVault.Status.Revealed));
+        assertEq(vault.vaultFreeBalance() + vault.totalClaimableTokens(), pool);
+        (teamTokens,) = vault.claimable(TEAM);
+        assertEq(teamTokens, 0);
+        vm.prank(_player(3));
+        vault.refund(3);
+        assertEq(vault.escrowedETH(), 0);
+        // Play resumes without anyone's intervention.
         _attempt(_player(7), "Proof of life for the oracle");
         vm.warp(vm.getBlockTimestamp() + 30 minutes);
         vault.closeBatch();
         _grade(3, 1);
-        assertEq(vault.failingSince(), 0);
-        _reveal(1, keccak256("batch one hash"));
         _reveal(3, keccak256("batch three hash"));
-        assertEq(vault.unrevealedGraded(), 0);
-        vm.warp(vm.getBlockTimestamp() + 31 days);
-        vm.expectRevert(BegVault.OracleAlive.selector);
-        vault.retire();
-        assertFalse(vault.retired());
-        vm.prank(_player(3));
-        vault.refund(3);
         _assertSolvent();
     }
 
-    function testRetiredVaultStaysSolventKeepsRefundsAndRejectsNewPlay() public {
+    function testAQuietMonthWithAnOpenBatchAndDonatedBountyBudgetMovesNothingToAnyone() public {
+        uint256 pool = vault.vaultFreeBalance();
         _batch(1);
         vm.warp(vm.getBlockTimestamp() + 24 hours);
         vault.expireBatch(1);
-        _attempt(_player(5), "Open when the vault retires");
+        _attempt(_player(5), "Open while the oracle is silent");
         vault.fundOracle{value: 0.3 ether}();
-        vm.warp(vm.getBlockTimestamp() + 30 days - 1);
-        vm.expectRevert(BegVault.OracleAlive.selector);
-        vault.retire();
-        vm.warp(vm.getBlockTimestamp() + 1);
-        uint256 free = vault.vaultFreeBalance();
-        vm.prank(_player(9));
-        vault.retire();
-        assertTrue(vault.retired());
+        vm.warp(vm.getBlockTimestamp() + 30 days);
+        for (uint256 i; i < 3; ++i) {
+            vm.prank(_player(9));
+            (bool ok,) = address(vault).call(abi.encodeWithSignature("retire()"));
+            assertFalse(ok, "a retire() entry point exists");
+        }
         (uint128 teamTokens, uint128 teamETH) = vault.claimable(TEAM);
-        assertEq(teamTokens, free);
-        assertEq(teamETH, 0.3 ether, "escrow of unsettled entries must never be swept");
-        assertEq(vault.vaultFreeBalance(), 0);
+        assertEq(teamTokens, 0);
+        assertEq(teamETH, 0);
+        assertEq(vault.vaultFreeBalance(), pool);
+        assertEq(vault.totalClaimableTokens(), 0);
         assertEq(vault.jackpotBank(), 0);
-        assertEq(vault.oracleBudget(), 0);
+        assertEq(vault.oracleBudget(), 0.3 ether, "donated bounty budget is not anyone's to take");
         assertEq(vault.escrowedETH(), 2 * PRICE);
-        vm.expectRevert(BegVault.NothingToClaim.selector);
-        vault.retire();
-        vm.expectRevert(BegVault.VaultRetired.selector);
-        vault.attempt{value: PRICE}("Nobody may play a retired vault");
-        vm.expectRevert(BegVault.VaultRetired.selector);
+        // The stale open batch can only be closed within its window or expired; its entry is refundable.
+        vm.expectRevert(BegVault.BatchTimedOut.selector);
         vault.closeBatch();
-        vm.expectRevert(BegVault.VaultRetired.selector);
+        vm.expectRevert(BegVault.BatchTimedOut.selector);
         vault.closeBatch(2);
-        // The open batch may be expired at once and every entry refunded in full.
         vault.expireBatch(2);
         vm.prank(_player(1));
         vault.refund(1);
@@ -492,16 +488,18 @@ contract AdversarialLifecycleTest is BegVaultBase {
         vm.prank(_player(5));
         vault.claim();
         assertEq(_player(5).balance, PRICE);
-        // Tokens that arrive later are swept again by anyone, never minted or duplicated.
+        // Tokens that arrive later only grow the pool players roll against.
         token.transfer(address(vault), 1234);
-        vault.retire();
-        (teamTokens,) = vault.claimable(TEAM);
-        assertEq(teamTokens, free + 1234);
+        assertEq(vault.vaultFreeBalance(), pool + 1234);
         vm.prank(TEAM);
+        vm.expectRevert(BegVault.NothingToClaim.selector);
         vault.claim();
-        assertEq(token.balanceOf(TEAM), free + 1234);
-        assertEq(TEAM.balance, 0.3 ether);
-        assertEq(token.balanceOf(address(vault)), 0);
+        uint256 batchId = _batch(20);
+        _grade(batchId, 100);
+        _reveal(batchId, keccak256("full table after the quiet month"));
+        assertGt(vault.totalClaimableTokens(), 0, "players rolled against an empty pool");
+        assertEq(vault.vaultFreeBalance() + vault.totalClaimableTokens(), pool + 1234);
+        assertEq(token.balanceOf(TEAM), 0);
         _assertSolvent();
     }
 
