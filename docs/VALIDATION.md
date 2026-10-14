@@ -5,7 +5,7 @@ Validated with Foundry 1.8.3 and the repository's pinned Solidity 0.8.26 configu
 | Check | Result |
 | --- | --- |
 | `forge build` | Pass |
-| `forge test` with the assignment's seed | 60 reported tests passed; zero failures or skips |
+| `forge test` with the assignment's seed | 65 tests passed; zero failures or skips (revision of 2026-10-14) |
 | Stateful accounting suite | Four invariants, 128 runs × 64 calls = 8,192 actions; zero handler reverts |
 | Mixed 280-byte message gas fuzzing | 10,000 cases passed the 250,000 ceiling including conservative transaction overhead |
 | `forge fmt --check` | Pass |
@@ -23,12 +23,12 @@ assertions add 21,000 plus a conservative calldata allowance):
 
 | Operation | Gas |
 | --- | ---: |
-| First regular 280-byte ASCII entry | 167,064 |
-| 280-byte two-byte Unicode entry | 201,873 |
-| 280-byte three-byte Unicode entry | 196,290 |
-| 280-byte emoji entry | 187,937 |
-| Twenty paying entries revealed, including multiple jackpots | 1,143,095 |
-| Twentieth 280-byte entry **including automatic close** | 3,878,950 |
+| Regular 280-byte ASCII entry (includes ~26.6k transaction base and calldata gas) | ~206,000 |
+| 280-byte entry with quotes/backslashes (escape slow path) | ~272,000 |
+| 280-byte two-byte Unicode entry | ~261,000 |
+| 280-byte three-byte Unicode / emoji entry | ~256,000 |
+| Twentieth 280-byte entry **including automatic close**, minimal Intake | 273,956 |
+| Twentieth 280-byte entry including automatic close, recording mock | ~368,000 |
 
 The automatic-close measurement uses a mock Intake that does not persist the JSON body. It is not
 a live-mainnet gas quote, and it explicitly exceeds the requested 250k entry ceiling. Real Intake

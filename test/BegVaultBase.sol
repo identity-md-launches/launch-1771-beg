@@ -66,9 +66,9 @@ abstract contract BegVaultBase is Test {
         view
         returns (OracleAttestation.Attestation memory a)
     {
-        BegVault.Batch memory b = vault.getBatch(batchId);
+        BegVault.BatchView memory b = vault.getBatch(batchId);
         a = OracleAttestation.Attestation({
-            requestId: keccak256(abi.encode("oracle UUID", b.questionId)),
+            requestId: keccak256(abi.encode("oracle UUID", _questionId(batchId))),
             chainId: 1,
             questionHash: keccak256(intake.lastBody()),
             answerType: OracleAttestation.ANSWER_BYTES32_LIST,
@@ -92,12 +92,12 @@ abstract contract BegVaultBase is Test {
     }
 
     function _grade(uint256 batchId, uint256 score) internal {
-        BegVault.Batch memory b = vault.getBatch(batchId);
+        BegVault.BatchView memory b = vault.getBatch(batchId);
         OracleAttestation.Attestation memory a = _attestation(batchId, _scores(b.size, score));
         bytes memory sig = _sign(a);
         // Clear EIP-2929 warming from preparatory reads to measure the actual cold callback.
         vm.cool(address(vault));
-        (bool ok, bytes memory result) = intake.deliver(b.questionId, a, sig);
+        (bool ok, bytes memory result) = intake.deliver(_questionId(batchId), a, sig);
         if (!ok) {
             assembly ("memory-safe") { revert(add(result, 32), mload(result)) }
         }
@@ -105,10 +105,19 @@ abstract contract BegVaultBase is Test {
     }
 
     function _reveal(uint256 batchId, bytes32 hash) internal {
-        BegVault.Batch memory b = vault.getBatch(batchId);
+        BegVault.BatchView memory b = vault.getBatch(batchId);
         vm.roll(uint256(b.rollBlock) + 1);
         vm.setBlockhash(b.rollBlock, hash);
         vault.reveal(batchId);
+    }
+
+    /// @dev Intake ids are the mock's request counter hashes; the vault maps each to its batch.
+    function _questionId(uint256 batchId) internal view returns (bytes32) {
+        for (uint256 n = intake.requests(); n > 0; --n) {
+            bytes32 id = keccak256(abi.encode(n));
+            if (vault.questionBatch(id) == batchId) return id;
+        }
+        revert("no question for batch");
     }
 
     function _assertSolvent() internal view {

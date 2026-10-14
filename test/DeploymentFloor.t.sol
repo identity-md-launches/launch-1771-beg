@@ -22,7 +22,7 @@ contract DeploymentFloorTest is BegVaultBase {
         assertEq(launchToken.totalSupply(), 1_000_000_000 ether);
     }
 
-    function testClosingActuallyErasesMessageStorageWords() public {
+    function testMessagesLiveInNonceDerivedDataContractsNotVaultStorage() public {
         bytes memory text = new bytes(280);
         for (uint256 i; i < text.length; ++i) {
             text[i] = 0x61;
@@ -30,22 +30,31 @@ contract DeploymentFloorTest is BegVaultBase {
         vm.record();
         vault.attempt{value: PRICE}(string(text));
         (, bytes32[] memory slots) = vm.accesses(address(vault));
-        bool[] memory messageSlot = new bool[](slots.length);
         bytes32 fullWord = 0x6161616161616161616161616161616161616161616161616161616161616161;
-        bytes32 tailWord = fullWord & bytes32(type(uint256).max << 64);
-        uint256 count;
         for (uint256 i; i < slots.length; ++i) {
             bytes32 value = vm.load(address(vault), slots[i]);
-            if (value == fullWord || value == tailWord) {
-                messageSlot[i] = true;
-                ++count;
-            }
+            assertTrue(value != fullWord && value != (fullWord & bytes32(type(uint256).max << 64)));
         }
-        assertEq(count, 9);
-        vm.warp(vm.getBlockTimestamp() + 30 minutes);
-        vault.closeBatch();
-        for (uint256 i; i < slots.length; ++i) {
-            if (messageSlot[i]) assertEq(vm.load(address(vault), slots[i]), bytes32(uint256(1)));
+        address pointer = vault.messagePointer(1, 0);
+        assertEq(pointer, vm.computeCreateAddress(address(vault), 1));
+        assertEq(pointer.code, bytes.concat(hex"00", bytes2(uint16(280)), text));
+        assertEq(vault.getAttempt(1).message, string(text));
+        assertEq(vault.autoClosed(), 0);
+        string memory raw = "A second entry with \"quotes\" and a\nnewline";
+        string memory escaped = "A second entry with \\\"quotes\\\" and a\\nnewline";
+        _attempt(_player(2), raw);
+        address second = vault.messagePointer(1, 1);
+        assertEq(second, vm.computeCreateAddress(address(vault), 2));
+        assertEq(second.code, bytes.concat(hex"00", bytes2(uint16(bytes(escaped).length)), bytes(escaped)));
+        assertEq(vault.getAttempt(2).message, raw);
+        _checkCode(pointer.code);
+    }
+
+    function testPointerDerivationMatchesCreateAddressesAcrossRlpLengthBoundaries() public view {
+        uint256[9] memory nonces = [uint256(1), 0x7f, 0x80, 0xff, 0x100, 0xffff, 0x10000, 0xffffff, 0x1000000];
+        for (uint256 i; i < nonces.length; ++i) {
+            // Batch 1 has first attempt id 0 and skew 0 before its first entry, so the index is the nonce.
+            assertEq(vault.messagePointer(1, nonces[i]), vm.computeCreateAddress(address(vault), nonces[i]));
         }
     }
 

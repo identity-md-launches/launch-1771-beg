@@ -8,7 +8,7 @@ import {OracleAttestation, OracleAttestationConsumer} from "../src/OracleAttesta
 contract OracleCallbackTest is BegVaultBase {
     function testCallbackRejectsWrongSenderUnknownIdAndDuplicate() public {
         _batch(1);
-        bytes32 questionId = vault.getBatch(1).questionId;
+        bytes32 questionId = _questionId(1);
         OracleAttestation.Attestation memory a = _attestation(1, _scores(1, 75));
         bytes memory signature = _sign(a);
         vm.expectRevert(BegVault.NotIntake.selector);
@@ -27,7 +27,7 @@ contract OracleCallbackTest is BegVaultBase {
 
     function testWrongArrayLengthAndAnswerTypeRevertWithoutConsuming() public {
         _batch(2);
-        bytes32 questionId = vault.getBatch(1).questionId;
+        bytes32 questionId = _questionId(1);
         OracleAttestation.Attestation memory a = _attestation(1, _scores(1, 50));
         _expect(a, questionId, BegVault.WrongScoreCount.selector);
         a.answer = abi.encode(_scores(3, 50));
@@ -43,7 +43,7 @@ contract OracleCallbackTest is BegVaultBase {
 
     function testExpiredFutureTamperedAndWrongDomainSignaturesFail() public {
         _batch(1);
-        bytes32 questionId = vault.getBatch(1).questionId;
+        bytes32 questionId = _questionId(1);
         OracleAttestation.Attestation memory a = _attestation(1, _scores(1, 50));
         a.expiresAt = uint64(block.timestamp - 1);
         _expect(
@@ -76,7 +76,7 @@ contract OracleCallbackTest is BegVaultBase {
 
     function testWrongQuestionChainStaleIssuanceAndWeakPanelsFail() public {
         _batch(1);
-        bytes32 questionId = vault.getBatch(1).questionId;
+        bytes32 questionId = _questionId(1);
         OracleAttestation.Attestation memory a = _attestation(1, _scores(1, 50));
         a.chainId = 4663;
         _expect(a, questionId, BegVault.WrongChain.selector);
@@ -100,7 +100,7 @@ contract OracleCallbackTest is BegVaultBase {
     function testOracleUUIDReplayAcrossDifferentIntakeRequestsFails() public {
         _batch(1);
         OracleAttestation.Attestation memory a = _attestation(1, _scores(1, 50));
-        bytes32 firstId = vault.getBatch(1).questionId;
+        bytes32 firstId = _questionId(1);
         bytes memory signature = _sign(a);
         vm.prank(address(intake));
         vault.onOracleResult(firstId, a, signature);
@@ -109,7 +109,7 @@ contract OracleCallbackTest is BegVaultBase {
         a.expiresAt = uint64(block.timestamp + 1 hours);
         _expect(
             a,
-            vault.getBatch(2).questionId,
+            _questionId(2),
             abi.encodeWithSelector(OracleAttestationConsumer.AlreadyConsumed.selector, a.requestId)
         );
         assertEq(uint256(vault.getBatch(2).status), uint256(BegVault.Status.Pending));
@@ -124,18 +124,18 @@ contract OracleCallbackTest is BegVaultBase {
         scores[19] = bytes32(type(uint256).max);
         OracleAttestation.Attestation memory a = _attestation(1, scores);
         bytes memory signature = _sign(a);
-        bytes32 questionId = vault.getBatch(1).questionId;
+        bytes32 questionId = _questionId(1);
         _attempt(_player(21), "Second batch still escrowed");
         vm.cool(address(vault));
         (bool ok,) = intake.deliver(questionId, a, signature);
         assertTrue(ok, "callback exceeds Intake stipend");
-        BegVault.Batch memory b = vault.getBatch(1);
+        BegVault.BatchView memory b = vault.getBatch(1);
         for (uint256 i; i < 20; ++i) {
             assertEq(uint8(b.scores >> (i * 8)), i > 5 ? 100 : i * 20);
         }
         assertEq(vault.escrowedETH(), PRICE);
-        assertEq(vault.jackpotBank(), 20 * PRICE * 80 / 100);
-        assertEq(vault.oracleBudget(), 20 * PRICE / 10);
+        assertEq(vault.jackpotBank(), 20 * PRICE - 20 * PRICE / 10 - 0.001 ether);
+        assertEq(vault.oracleBudget(), 0.001 ether);
         (, uint128 teamCredit) = vault.claimable(TEAM);
         assertEq(teamCredit, 20 * PRICE / 10);
         assertEq(b.prevrandao, block.prevrandao);
@@ -158,7 +158,7 @@ contract OracleCallbackTest is BegVaultBase {
         // The length matches, but the dynamic offset points outside the answer.
         a.answer = abi.encode(uint256(4096), uint256(1), uint256(50));
         bytes memory signature = _sign(a);
-        bytes32 questionId = vault.getBatch(1).questionId;
+        bytes32 questionId = _questionId(1);
         vm.prank(address(intake));
         vm.expectRevert();
         vault.onOracleResult(questionId, a, signature);

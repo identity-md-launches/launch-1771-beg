@@ -83,7 +83,7 @@ contract BegVaultTest is BegVaultBase {
         vm.expectRevert(BegVault.BatchNotReady.selector);
         vault.closeBatch();
         _attempt(_player(1), "Message one");
-        BegVault.Batch memory b = vault.getBatch(1);
+        BegVault.BatchView memory b = vault.getBatch(1);
         assertEq(b.size, 1);
         assertEq(b.openedAt, block.timestamp);
         assertEq(vault.getAttempt(1).message, "Message one");
@@ -93,14 +93,46 @@ contract BegVaultTest is BegVaultBase {
         vm.expectRevert(BegVault.BatchNotReady.selector);
         vault.closeBatch();
         vm.warp(block.timestamp + 1);
-        vm.deal(_player(2), PRICE);
-        vm.prank(_player(2));
-        vm.expectRevert(BegVault.BatchNeedsClosing.selector);
-        vault.attempt{value: PRICE}("Too late");
-        vault.closeBatch();
+        // A late entry starts the next batch instead of freezing play behind the stale one.
+        _attempt(_player(2), "Too late for batch one");
+        assertEq(vault.openBatchId(), 2);
+        assertEq(vault.getAttempt(2).batchId, 2);
+        assertEq(vault.getBatch(2).size, 1);
+        assertEq(uint256(vault.getBatch(1).status), uint256(BegVault.Status.Open));
+        assertEq(vault.nextToClose(), 1);
+        vault.closeBatch(); // closes the oldest open batch, batch one
+        assertEq(vault.nextToClose(), 2);
+        assertEq(uint256(vault.getBatch(1).status), uint256(BegVault.Status.Pending));
         assertEq(vault.openBatchId(), 2);
         assertEq(vault.getAttempt(1).message, "");
-        assertEq(vault.escrowedETH(), PRICE);
+        assertEq(vault.getAttempt(2).message, "Too late for batch one");
+        assertEq(vault.escrowedETH(), 2 * PRICE);
+        vm.expectRevert(BegVault.BatchNotReady.selector);
+        vault.closeBatch(); // batch two is younger than the window
+        vm.expectRevert(BegVault.BatchNotReady.selector);
+        vault.closeBatch(1); // already pending
+        _assertSolvent();
+    }
+
+    function testOutOfOrderCloseAndExpiryAdvanceTheCursorPastSettledBatches() public {
+        _attempt(_player(1), "batch one");
+        vm.warp(vm.getBlockTimestamp() + 30 minutes);
+        _attempt(_player(2), "batch two");
+        vm.warp(vm.getBlockTimestamp() + 30 minutes);
+        _attempt(_player(3), "batch three");
+        assertEq(vault.openBatchId(), 3);
+        assertEq(vault.nextToClose(), 1);
+        vault.closeBatch(2); // the younger batch first
+        assertEq(vault.nextToClose(), 1);
+        vault.closeBatch();
+        assertEq(vault.nextToClose(), 3); // skips the already pending batch two
+        vm.warp(vm.getBlockTimestamp() + 30 minutes);
+        vault.closeBatch();
+        assertEq(vault.openBatchId(), 4);
+        assertEq(vault.nextToClose(), 4);
+        assertEq(vault.getBatch(4).size, 0); // the empty open batch is readable
+        vm.expectRevert(BegVault.UnknownBatch.selector);
+        vault.getBatch(5);
         _assertSolvent();
     }
 
@@ -112,7 +144,7 @@ contract BegVaultTest is BegVaultBase {
         assertEq(vault.openBatchId(), 2);
         assertEq(vault.nextAttemptId(), 21);
         assertEq(vault.oracleTokenBudget(), 99.5 ether);
-        assertEq(imd.allowance(address(vault), address(intake)), 0);
+        assertEq(imd.allowance(address(vault), address(intake)), type(uint256).max);
         assertEq(intake.lastAction(), bytes32("oracle.request@oracle-1"));
         assertEq(intake.lastAsset(), address(imd));
         assertEq(intake.lastAmount(), 0.5 ether);
@@ -141,24 +173,39 @@ contract BegVaultTest is BegVaultBase {
         assertEq(vm.parseJsonUint(body, ".chainId"), 1);
         assertEq(vm.parseJsonUint(body, ".panelSize"), 5);
         assertEq(vm.parseJsonUint(body, ".quorum"), 3);
-        assertEq(vm.parseJsonUint(body, ".toleranceBps"), 1000);
+        assertFalse(vm.keyExistsJson(body, ".toleranceBps")); // not a PaidOracleInput key
         assertFalse(vm.parseJsonBool(body, ".allowAmbiguous"));
+        assertEq(vm.parseJsonString(body, ".evidence"), "panel");
+        assertEq(vm.parseJsonUint(body, ".validForSeconds"), 86_400);
+        assertEq(vm.parseJsonUint(body, ".window.hours"), 1);
         assertLt(bytes(vm.parseJsonString(body, ".question")).length, 2000);
     }
 
-    function testEscapedBodyBudgetPreventsAnUncloseableBatch() public {
-        for (uint256 i; i < 8; ++i) {
-            bytes memory text = new bytes(280);
-            text[0] = bytes1(uint8(i));
+    function testEscapedMessageCapKeepsEverySeatUsableAndTheBodyWithinIntakeLimit() public {
+        bytes memory controls = new bytes(280); // escapes to 1,680 bytes
+        vm.expectRevert(BegVault.BodyTooLarge.selector);
+        vault.attempt{value: PRICE}(string(controls));
+        bytes memory quotes = new bytes(201); // 402 escaped bytes
+        for (uint256 i; i < quotes.length; ++i) {
+            quotes[i] = '"';
+        }
+        vm.expectRevert(BegVault.BodyTooLarge.selector);
+        vault.attempt{value: PRICE}(string(quotes));
+        // Twenty messages at the cap: 160 newlines (two bytes each) and 80 printable bytes.
+        for (uint256 i; i < 20; ++i) {
+            bytes memory text = new bytes(240);
+            for (uint256 j; j < 160; ++j) {
+                text[j] = "\n";
+            }
+            for (uint256 j = 160; j < 240; ++j) {
+                text[j] = bytes1(uint8(0x41 + (i + j) % 26));
+            }
             _attempt(_player(i), string(text));
         }
-        bytes memory extra = new bytes(280);
-        extra[0] = bytes1(uint8(8));
-        vm.expectRevert(BegVault.BodyTooLarge.selector);
-        vault.attempt{value: PRICE}(string(extra));
-        vm.warp(block.timestamp + 30 minutes);
-        vault.closeBatch();
+        assertEq(uint256(vault.getBatch(1).status), uint256(BegVault.Status.Pending));
         assertLe(intake.lastBody().length, 16_384);
+        string memory body = string(intake.lastBody());
+        assertEq(bytes(vm.parseJsonString(body, '.definitions["20"]')).length, 240);
     }
 
     function testUnfundedCloseRollsBackAndCanBeRetried() public {
@@ -199,12 +246,12 @@ contract BegVaultTest is BegVaultBase {
         _attempt(_player(1), "This must survive");
         intake.setReject(true);
         vm.warp(block.timestamp + 30 minutes);
-        vm.expectRevert("intake unavailable");
+        vm.expectRevert(BegVault.OracleUnfunded.selector);
         vault.closeBatch();
         assertEq(vault.getAttempt(1).message, "This must survive");
         assertEq(uint256(vault.getBatch(1).status), uint256(BegVault.Status.Open));
         assertEq(vault.oracleTokenBudget(), 100 ether);
-        assertEq(imd.allowance(address(vault), address(intake)), 0);
+        assertEq(imd.allowance(address(vault), address(intake)), type(uint256).max);
         _assertSolvent();
     }
 
@@ -225,15 +272,16 @@ contract BegVaultTest is BegVaultBase {
 
     function testPendingTimeoutBoundariesAndLateCallbackIgnored() public {
         _batch(1);
-        BegVault.Batch memory b = vault.getBatch(1);
+        BegVault.BatchView memory b = vault.getBatch(1);
         OracleAttestation.Attestation memory a = _attestation(1, _scores(1, 100));
         vm.warp(uint256(b.closedAt) + 24 hours - 1);
         vm.expectRevert(BegVault.TooEarly.selector);
         vault.expireBatch(1);
         vm.warp(block.timestamp + 1);
         vault.expireBatch(1);
+        bytes32 questionId = _questionId(1);
         vm.prank(address(intake));
-        vault.onOracleResult(b.questionId, a, hex"00"); // Even an obsolete signature is ignored after expiry.
+        vault.onOracleResult(questionId, a, hex"00"); // Even an obsolete signature is ignored after expiry.
         assertEq(vault.jackpotBank(), 0);
         assertEq(vault.oracleBudget(), 0);
         _refundAndCheck(1, _player(1));
@@ -242,12 +290,13 @@ contract BegVaultTest is BegVaultBase {
 
     function testLateCallbackCannotWinARaceAgainstExpiration() public {
         _batch(1);
-        BegVault.Batch memory b = vault.getBatch(1);
+        BegVault.BatchView memory b = vault.getBatch(1);
         OracleAttestation.Attestation memory a = _attestation(1, _scores(1, 100));
         bytes memory sig = _sign(a);
         vm.warp(uint256(b.closedAt) + 24 hours);
+        bytes32 questionId = _questionId(1);
         vm.prank(address(intake));
-        vault.onOracleResult(b.questionId, a, sig);
+        vault.onOracleResult(questionId, a, sig);
         assertEq(uint256(vault.getBatch(1).status), uint256(BegVault.Status.Expired));
         _refundAndCheck(1, _player(1));
     }

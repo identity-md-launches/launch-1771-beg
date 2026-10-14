@@ -38,6 +38,7 @@ contract OracleConsumerConformanceTest is Test {
             VECTOR_CONSUMER
         );
         consumer = BegVault(VECTOR_CONSUMER);
+        vm.setNonce(VECTOR_CONSUMER, 1); // etched code has nonce 0; a created contract starts at 1
         token.transfer(VECTOR_CONSUMER, 800_000_000 ether);
         imd.mint(address(this), 1 ether);
         imd.approve(VECTOR_CONSUMER, 1 ether);
@@ -46,7 +47,8 @@ contract OracleConsumerConformanceTest is Test {
         consumer.attempt{value: 0.005 ether}("A protocol vector's humble request");
         vm.warp(ISSUED_AT);
         consumer.closeBatch();
-        sourceRequestId = consumer.getBatch(1).questionId;
+        sourceRequestId = keccak256(abi.encode(uint256(1)));
+        assertEq(consumer.questionBatch(sourceRequestId), 1);
     }
 
     function vector() internal pure returns (OracleAttestation.Attestation memory a) {

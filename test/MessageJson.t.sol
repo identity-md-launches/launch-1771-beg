@@ -9,8 +9,17 @@ contract MessageJsonHarness {
         return MessageJson.validate(text);
     }
 
-    function quote(bytes memory text) external pure returns (bytes memory) {
-        return MessageJson.quote(text);
+    function escape(bytes calldata text) external pure returns (bytes memory) {
+        return MessageJson.escape(text);
+    }
+
+    function unescape(bytes memory text) external pure returns (bytes memory) {
+        return MessageJson.unescape(text);
+    }
+
+    /// @dev Quoted form, as the vault writes it into a definition value.
+    function quote(bytes calldata text) external pure returns (bytes memory) {
+        return bytes.concat('"', MessageJson.escape(text), '"');
     }
 }
 
@@ -41,7 +50,8 @@ contract MessageJsonTest is Test {
         }
         assertEq(harness.validate(input), expected);
         bytes memory quoted = harness.quote(input);
-        assertEq(quoted.length, expected + 2);
+        assertLe(quoted.length, expected + 2);
+        assertEq(harness.unescape(harness.escape(input)), input);
         assertEq(
             vm.parseJsonString(string(bytes.concat(bytes('{"text":'), quoted, bytes("}"))), ".text"),
             string(input)
@@ -56,7 +66,10 @@ contract MessageJsonTest is Test {
             }
             uint256 perByte = c < 32 ? 6 : c == 34 || c == 92 ? 2 : 1;
             assertEq(harness.validate(input), 280 * perByte);
-            assertEq(harness.quote(input).length, 280 * perByte + 2);
+            bool shortEscape = c == 8 || c == 9 || c == 10 || c == 12 || c == 13;
+            assertEq(harness.quote(input).length, 280 * (shortEscape ? 2 : perByte) + 2);
+            assertEq(harness.unescape(harness.escape(input)), input);
+            if (c == 10) assertEq(harness.escape(input)[1], "n");
         }
     }
 
@@ -90,7 +103,8 @@ contract MessageJsonTest is Test {
         assertTrue(valid);
         assertEq(harness.validate(input), expectedLength);
         bytes memory quoted = harness.quote(input);
-        assertEq(quoted.length, expectedLength + 2);
+        assertLe(quoted.length, expectedLength + 2); // short escapes may shrink it
+        assertEq(harness.unescape(harness.escape(input)), input);
         string memory body = string(bytes.concat(bytes('{"text":'), quoted, bytes("}")));
         assertEq(vm.parseJsonString(body, ".text"), string(input));
     }

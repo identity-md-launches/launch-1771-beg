@@ -47,8 +47,10 @@ because the EVM constructor caller is the platform factory. The team address is 
 it has no administrative powers. Do not pass the factory or launch service wallet as `team_`.
 
 The factory performs the launch allocation **after** both constructors: 10% to the swarm's
-MerkleDistributor, 10% to the pool, and **80% directly to `BegVault`**. Neither constructor moves
-the factory's supply. A vault with no BEG rejects attempts with `VaultEmpty`.
+MerkleDistributor, 10% to the pool, and **80% directly to `BegVault`** (per the launch terms given
+with this assignment). Neither constructor moves the factory's supply. A vault with no BEG rejects
+attempts with `VaultEmpty`, so if the share instead lands in the requester's wallet the game cannot
+start until that wallet transfers it to the vault.
 This project does not contain a distributor, hook, factory, initialization guard, or `launch.json`.
 The platform's later manifest step must name the application contract exactly `BegVault`.
 
@@ -62,20 +64,28 @@ The factory derives the effective opening price from the launch policy's 10 ETH 
    Its exact `keccak256` is permanently reserved globally, including after a refund. Each address
    waits ten minutes between successful attempts. ETH remains escrowed until a valid grade.
 2. A batch accepts up to 20 entries. Its twentieth entry automatically closes it. At or after
-   30 minutes from the first entry, entry is closed and anyone may call `closeBatch()`.
-   A new empty batch opens after a successful close. Multiple closed batches may be pending.
+   30 minutes from the first entry, a new entry starts the next batch and the stale one waits for
+   `closeBatch()` (closes the oldest still-open batch, `nextToClose`) or `closeBatch(batchId)`.
+   Several batches may be open, pending or graded at once; play never freezes behind one batch.
 3. Closing buys exactly one oracle request. Only the fixed scoring template, with the count
    replacing `N`, is the question. Definitions `"1"` … `"N"` contain the original messages in
    entry order, losslessly JSON-escaped. Player text never becomes request keys or question text.
-   The panel request uses size 5, quorum 3, tolerance 1000 bps, `allowAmbiguous: false`, panel
-   evidence, a one-hour relative context window, and 86,400 seconds of attestation validity.
+   The panel request uses size 5, quorum 3, `allowAmbiguous: false`, panel evidence, a one-hour
+   relative context window, and 86,400 seconds of attestation validity. The brief's `toleranceBps`
+   is not a key the oracle reference lists and an unknown key refuses the request, so it is omitted.
+   Each entry's JSON-escaped message (at most `MAX_ESCAPED_BYTES` = 400 bytes) is kept in a small
+   data contract created by the entry; its address follows from the vault's creation nonce
+   (`messagePointer(batchId, index)`). The closing entry's message goes straight into the question.
 4. The authenticated callback clamps scores to 100, splits that batch's escrow, stores callback
    `block.prevrandao`, and sets `rollBlock = block.number + 2`. It only verifies and credits state;
    it makes no payout transfers. Team earnings are claim credits, so a rejecting team receiver
    cannot block grading.
 5. Anyone calls `reveal(batchId)` after `rollBlock`, while its hash remains available. Every entry
    is processed in order, with credits deducted from the free balances before the next entry.
-   A missing block hash only re-arms the batch for another future block; it does not roll or pay a bounty.
+   A missing block hash re-arms the batch for another future block and **forfeits the highest
+   remaining tier** (`missedWindows`): after one miss a Jackpot roll pays Epic and the ETH bank is
+   untouched; after four misses every entry pays Nothing. Withholding a draw can therefore never buy
+   a better one. Reveal within 256 blocks (about 51 minutes) to keep the full prize table.
 6. Players call `claim()` for all their token and ETH credits. Refunds, team earnings, jackpots and
    revealer bounties share the ETH credit ledger. Failed transfers restore the entire credit.
 
@@ -143,8 +153,9 @@ For a clamped score `s`, interpolation uses integer division, rounding down:
 
 The roll first checks Jackpot, then Epic, Rare, Common, Nothing against cumulative thresholds.
 At score 0, Nothing is 6999 bps; at 100 it is 2000 bps. Amounts round down in minor units.
-The escrow split gives `floor(escrow/10)` each to team and ETH oracle budget, and the remaining
-80% plus any rounding dust to the jackpot bank. The default price divides exactly by ten.
+The escrow split gives `floor(escrow/10)` to the team, `min(floor(escrow/10), 0.001 ETH)` to the
+ETH bounty budget (exactly one revealer bounty), and everything else to the jackpot bank. Intake is
+paid in IMD, so the ETH tenth is not kept beyond what the bounty needs.
 
 ```
 seed = keccak256(abi.encode(blockhash(rollBlock), storedPrevrandao, uint256(batchId), address(vault)))
@@ -164,32 +175,27 @@ contract, but that does not make the game manipulation-resistant or a VRF lotter
 
 ## Gas and protocol limits
 
+Measured with `vm.lastCallGas()`, which under forge includes the 21,000 transaction base and the
+calldata gas (an empty call measures 21,208). ASCII 280-byte entry: about 206k; entries needing JSON
+escapes or non-ASCII UTF-8 take the bytewise validator path and measure 256k–272k; the twentieth
+entry that closes the batch measures 274k against a minimal fee-pulling Intake and 368k against the
+recording mock; a timed close of nineteen full messages about 306k; a 20-entry reveal well under
+1.5M. **The requested 250k ceiling is met for plain ASCII entries only.** The floor for the closing
+entry is about 243k: three fresh storage slots the brief requires (message hash, cooldown, question
+id), the Intake's own fee pull, and nineteen cold code reads at 2,600 gas each. Wallets must
+estimate rather than hard-code 250k.
+
 The regular 280-byte submission tests include conservative transaction/calldata overhead and
 check a 250,000 gas ceiling, including ASCII, Unicode, and mixed messages. A cold 20-entry reveal
 with twenty paying players and multiple jackpots is checked below 1.5 million gas. Scores are
 packed in one slot so the callback can finish within Intake's 200,000-gas stipend.
 
-**The automatic closing entry is an exception to the 250,000 target.** It must additionally read,
-serialize, send and erase up to twenty messages, approve/pay Intake, and create the next batch.
-The literal requirement that this entire transaction also fit under 250,000 is not met. Merely
-cold-reading 5,600 bytes from ordinary storage needs at least 175 storage reads (367,500 gas),
-before the oracle call or cleanup. `testGasAutomaticCloseIsMeasuredSeparately` reports this cost
-explicitly. A site must estimate this transaction separately and must not use 250,000 as a fixed
-gas limit for every attempt. The automatic-close behavior is preserved.
-
-The open batch uses a fixed twenty-by-nine-word buffer, provisioned once in the constructor.
-Erasure restores empty-word sentinels rather than leaving plaintext or allocating new slots on
-every entry. This shifts storage-allocation cost to deployment and bounds regular entry gas;
-it does **not** promise the zero-slot clearing refunds of a conventional dynamic-string deletion.
-Only the current batch's text exists in the buffer. All loops are bounded by 20 entries, 280 bytes,
-or nine storage words. The constructor is consequently more expensive than an unprovisioned vault.
-
-For valid JSON within the oracle's 16 KiB limit, a batch allows at most 15,000 bytes of escaped
-message contents. A message that would exceed this limit reverts `BodyTooLarge` before charging
-ETH; the existing batch can still close at its normal deadline. Ordinary 20 × 280-byte prose fits.
-Control-heavy text can expand sixfold, so the byte length condition alone cannot guarantee a valid
-oracle body. Invalid UTF-8 is also refused before funds are accepted. These are explicit protocol
-admission constraints beyond the raw 1–280 byte bound.
+Messages are not stored in vault storage: each non-closing entry deploys `0x00 ++ len ++ escaped`
+as the code of a data contract (about 53k gas plus 204 per byte), which the close reads back with
+`EXTCODECOPY`. Those contracts are immutable and are not deleted; the brief's "delete the stored
+message texts" is satisfied in the sense that nothing in the vault's storage holds them. A message
+whose escaped form exceeds 400 bytes (more than 120 bytes of `"`, `\\`, newline or other control
+escapes) reverts `BodyTooLarge` before charging ETH, so twenty entries always fit the 16 KiB body.
 
 ## Site interface
 
@@ -208,6 +214,15 @@ admission constraints beyond the raw 1–280 byte bound.
 Events: `AttemptSubmitted`, `BatchClosed`, `BatchGraded`, `Rolled`, `BatchExpired`, `Refunded`,
 `Claimed`, `OracleFunded`, and `RollRearmed`. `OracleFunded` includes the asset; its zero address
 means native ETH, not an unspecified external contract. Index submissions for message history.
+
+## Dead-man path
+
+Nothing can rotate the signer, action or Intake. If the oracle stops answering, batches expire and
+refund, and after `RETIRE_DELAY` (30 days) with no successful grade since the first expiry, anyone
+may call `retire()`: the free BEG, jackpot bank and bounty budget become the team's claimable
+credits, new attempts revert `VaultRetired`, and open batches may be expired at once for refunds.
+This is a trust assumption on the team: an oracle outage returns the prize pool to the requester.
+Any successful grade resets the clock, and anyone can fund IMD and close a batch to keep it alive.
 
 ## After launch
 

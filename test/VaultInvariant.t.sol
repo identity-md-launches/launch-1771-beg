@@ -47,8 +47,8 @@ contract VaultHandler is Test {
 
     function grade(uint256 batchSeed, uint8 score) external {
         uint256 id = 1 + batchSeed % vault.openBatchId();
-        BegVault.Batch memory b;
-        try vault.getBatch(id) returns (BegVault.Batch memory value) {
+        BegVault.BatchView memory b;
+        try vault.getBatch(id) returns (BegVault.BatchView memory value) {
             b = value;
         } catch {
             return;
@@ -59,7 +59,8 @@ contract VaultHandler is Test {
             scores[i] = bytes32(uint256(score));
         }
         OracleAttestation.Attestation memory a;
-        a.requestId = keccak256(abi.encode("stateful UUID", b.questionId));
+        bytes32 questionId = _questionId(id);
+        a.requestId = keccak256(abi.encode("stateful UUID", questionId));
         a.chainId = 1;
         a.answerType = OracleAttestation.ANSWER_BYTES32_LIST;
         a.answer = abi.encode(scores);
@@ -69,7 +70,19 @@ contract VaultHandler is Test {
         a.issuedAt = uint64(vm.getBlockTimestamp());
         a.expiresAt = a.issuedAt + 1 hours;
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(signerKey, vault.attestationDigest(a));
-        intake.deliver(b.questionId, a, abi.encodePacked(r, s, v));
+        intake.deliver(questionId, a, abi.encodePacked(r, s, v));
+    }
+
+    function retire() external {
+        try vault.retire() {} catch {}
+    }
+
+    function _questionId(uint256 batchId) private view returns (bytes32) {
+        for (uint256 n = intake.requests(); n > 0; --n) {
+            bytes32 id = keccak256(abi.encode(n));
+            if (vault.questionBatch(id) == batchId) return id;
+        }
+        revert("no question for batch");
     }
 
     function expire(uint256 batchSeed) external {
@@ -79,8 +92,8 @@ contract VaultHandler is Test {
 
     function reveal(uint256 batchSeed, bytes32 hash, bool missWindow) external {
         uint256 id = 1 + batchSeed % vault.openBatchId();
-        BegVault.Batch memory b;
-        try vault.getBatch(id) returns (BegVault.Batch memory value) {
+        BegVault.BatchView memory b;
+        try vault.getBatch(id) returns (BegVault.BatchView memory value) {
             b = value;
         } catch {
             return;
@@ -130,7 +143,7 @@ contract VaultInvariantTest is BegVaultBase {
         super.setUp();
         intake.setRecordBody(false);
         handler = new VaultHandler(vault, intake, TEAM, SIGNER_KEY);
-        bytes4[] memory selectors = new bytes4[](9);
+        bytes4[] memory selectors = new bytes4[](10);
         selectors[0] = handler.enter.selector;
         selectors[1] = handler.advance.selector;
         selectors[2] = handler.close.selector;
@@ -140,6 +153,7 @@ contract VaultInvariantTest is BegVaultBase {
         selectors[6] = handler.refund.selector;
         selectors[7] = handler.claim.selector;
         selectors[8] = handler.fund.selector;
+        selectors[9] = handler.retire.selector;
         targetSelector(FuzzSelector(address(handler), selectors));
         targetContract(address(handler));
     }
@@ -169,7 +183,7 @@ contract VaultInvariantTest is BegVaultBase {
         uint256 escrow;
         for (uint256 i = 1; i < vault.nextAttemptId(); ++i) {
             BegVault.AttemptView memory a = vault.getAttempt(i);
-            BegVault.Batch memory b = vault.getBatch(a.batchId);
+            BegVault.BatchView memory b = vault.getBatch(a.batchId);
             if (
                 b.status == BegVault.Status.Open || b.status == BegVault.Status.Pending
                     || (b.status == BegVault.Status.Expired && !a.refunded)
