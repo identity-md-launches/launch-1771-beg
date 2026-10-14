@@ -61,7 +61,7 @@ contract RewardPropertiesTest is BegVaultBase {
         scores[19] = bytes32(type(uint256).max);
         OracleAttestation.Attestation memory a = _attestation(1, scores);
         bytes memory signature = _sign(a);
-        (bool ok,) = intake.deliver(vault.getBatch(1).questionId, a, signature);
+        (bool ok,) = intake.deliver(_questionId(1), a, signature);
         assertTrue(ok);
         bytes32 hash = keccak256(abi.encode("mixed score roll", entropy));
         uint256 randao = vault.getBatch(1).prevrandao;
@@ -176,7 +176,7 @@ contract RewardPropertiesTest is BegVaultBase {
         OracleAttestation.Attestation memory a = _attestation(2, secondScores);
         vm.prevrandao(bytes32(uint256(202)));
         bytes memory signature = _sign(a);
-        (bool ok,) = intake.deliver(vault.getBatch(2).questionId, a, signature);
+        (bool ok,) = intake.deliver(_questionId(2), a, signature);
         assertTrue(ok);
         vm.prevrandao(bytes32(uint256(303)));
         _grade(1, 7);
@@ -196,25 +196,31 @@ contract RewardPropertiesTest is BegVaultBase {
     function testRepeatedRearmsNeverPayAndRetainTheOriginalGrade() public {
         _batch(20);
         _grade(1, 87);
-        BegVault.Batch memory original = vault.getBatch(1);
+        BegVault.BatchView memory original = vault.getBatch(1);
         bytes32 accountingBefore = _accounting();
         for (uint256 i; i < 3; ++i) {
             uint256 oldBlock = vault.getBatch(1).rollBlock;
             vm.roll(oldBlock + 257);
             vm.prevrandao(bytes32(i + 1000));
             vault.reveal(1);
-            BegVault.Batch memory current = vault.getBatch(1);
+            BegVault.BatchView memory current = vault.getBatch(1);
             assertEq(current.rollBlock, vm.getBlockNumber() + 2);
             assertEq(current.seed, bytes32(0));
             assertEq(current.prevrandao, original.prevrandao);
             assertEq(current.scores, original.scores);
-            assertEq(current.questionId, original.questionId);
+            assertEq(current.missedWindows, i + 1);
             assertEq(uint256(current.status), uint256(BegVault.Status.Graded));
             assertEq(_accounting(), accountingBefore);
         }
         _reveal(1, keccak256("finally available"));
         (, uint128 bounty) = vault.claimable(address(this));
         assertEq(bounty, 0.001 ether);
+        // Three missed windows forfeit Jackpot, Epic and Rare: no entry may exceed Common.
+        for (uint256 i = 1; i <= 20; ++i) {
+            BegVault.AttemptView memory a = vault.getAttempt(i);
+            assertLe(uint256(a.tier), uint256(BegVault.Tier.Common));
+            assertEq(a.ethAmount, 0);
+        }
         _assertSolvent();
     }
 
@@ -261,7 +267,7 @@ contract RewardPropertiesTest is BegVaultBase {
     }
 
     function testMaximumPriceTwentyEntriesDoNotTruncateEscrowOrCredits() public {
-        uint256 price = type(uint96).max;
+        uint256 price = type(uint80).max;
         _freshVault(price, 1_000_000 ether);
         for (uint256 i = 1; i <= 20; ++i) {
             vm.deal(_player(i), price);
@@ -271,8 +277,9 @@ contract RewardPropertiesTest is BegVaultBase {
         uint256 gross = 20 * price;
         assertEq(vault.escrowedETH(), gross);
         _grade(1, 100);
-        assertEq(vault.jackpotBank(), gross * 8 / 10);
-        assertEq(vault.oracleBudget(), gross / 10);
+        assertEq(vault.escrowedETH(), 0);
+        assertEq(vault.jackpotBank(), gross - gross / 10 - 0.001 ether);
+        assertEq(vault.oracleBudget(), 0.001 ether);
         (, uint128 teamCredit) = vault.claimable(TEAM);
         assertEq(teamCredit, gross / 10);
         _reveal(1, _hashForFirstTier(1, BegVault.Tier.Jackpot));
@@ -297,7 +304,7 @@ contract RewardPropertiesTest is BegVaultBase {
     }
 
     function _hashForFirstTier(uint256 id, BegVault.Tier tier) private view returns (bytes32) {
-        BegVault.Batch memory b = vault.getBatch(id);
+        BegVault.BatchView memory b = vault.getBatch(id);
         for (uint256 n = 1; n < 4096; ++n) {
             bytes32 hash = keccak256(abi.encode("tier fixture", n));
             bytes32 seed = keccak256(abi.encode(hash, b.prevrandao, id, address(vault)));
@@ -308,7 +315,7 @@ contract RewardPropertiesTest is BegVaultBase {
     }
 
     function _outcome(uint256 id) private view returns (bytes32 result) {
-        BegVault.Batch memory b = vault.getBatch(id);
+        BegVault.BatchView memory b = vault.getBatch(id);
         result = keccak256(abi.encode(b, vault.jackpotBank(), vault.oracleBudget(), vault.vaultFreeBalance()));
         for (uint256 i; i < b.size; ++i) {
             result = keccak256(abi.encode(result, vault.getAttempt(uint256(b.firstAttemptId) + i)));

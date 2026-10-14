@@ -24,24 +24,39 @@ contract AdversarialLifecycleTest is BegVaultBase {
             address(intake),
             address(imd),
             vm.addr(SIGNER_KEY),
-            uint256(type(uint96).max) + 1
+            uint256(type(uint80).max) + 1
         );
     }
 
     function testUnknownViewsAndTransitionsCannotCreatePhantomBatches() public {
-        uint256[3] memory ids = [uint256(0), uint256(1), type(uint256).max];
+        uint256[4] memory ids = [uint256(0), uint256(1), uint256(2), type(uint256).max];
         for (uint256 i; i < ids.length; ++i) {
             vm.expectRevert(BegVault.UnknownAttempt.selector);
             vault.getAttempt(ids[i]);
-            vm.expectRevert(BegVault.UnknownBatch.selector);
-            vault.getBatch(ids[i]);
+            if (ids[i] == 1) {
+                // The open batch is viewable before its first entry, but it has no state to act on.
+                BegVault.BatchView memory empty = vault.getBatch(1);
+                assertEq(empty.size, 0);
+                assertEq(uint256(empty.status), uint256(BegVault.Status.Open));
+                assertEq(empty.firstAttemptId, 0);
+            } else {
+                vm.expectRevert(BegVault.UnknownBatch.selector);
+                vault.getBatch(ids[i]);
+            }
             vm.expectRevert(BegVault.UnknownBatch.selector);
             vault.reveal(ids[i]);
             vm.expectRevert(BegVault.UnknownBatch.selector);
             vault.expireBatch(ids[i]);
+            vm.expectRevert(BegVault.BatchNotReady.selector);
+            vault.closeBatch(ids[i]);
         }
+        vm.expectRevert(BegVault.BatchNotReady.selector);
+        vault.closeBatch();
+        vm.expectRevert(BegVault.OracleAlive.selector);
+        vault.retire();
         assertEq(vault.nextAttemptId(), 1);
         assertEq(vault.openBatchId(), 1);
+        assertEq(vault.nextToClose(), 1);
         _assertSolvent();
     }
 
@@ -165,20 +180,33 @@ contract AdversarialLifecycleTest is BegVaultBase {
         address lastPlayer = _player(20);
         vm.deal(lastPlayer, PRICE);
         vm.prank(lastPlayer);
-        vm.expectRevert("intake unavailable");
+        vm.expectRevert(BegVault.OracleUnfunded.selector);
         vault.attempt{value: PRICE}("twentieth entry");
         assertEq(lastPlayer.balance, PRICE);
         assertEq(vault.cooldownUntil(lastPlayer), 0);
         assertFalse(vault.usedMessage(keccak256("twentieth entry")));
         assertEq(vault.getBatch(1).size, 19);
+        assertEq(vault.getBatch(1).lastPlayer, address(0));
         assertEq(vault.nextAttemptId(), 20);
-        assertEq(imd.allowance(address(vault), address(intake)), 0);
+        assertEq(vault.autoClosed(), 0);
+        assertEq(vault.openBatchId(), 1);
+        vm.expectRevert(BegVault.UnknownAttempt.selector);
+        vault.getAttempt(20);
         intake.setReject(false);
         vm.prank(lastPlayer);
         assertEq(vault.attempt{value: PRICE}("twentieth entry"), 20);
         assertEq(intake.requests(), 1);
         assertEq(vault.getBatch(1).size, 20);
+        assertEq(vault.getBatch(1).lastPlayer, lastPlayer);
+        assertEq(vault.autoClosed(), 1);
         assertEq(vault.openBatchId(), 2);
+        assertEq(vault.nextToClose(), 2);
+        // The closing entry has no stored record, yet it is located by id like any other.
+        BegVault.AttemptView memory closing = vault.getAttempt(20);
+        assertEq(closing.player, lastPlayer);
+        assertEq(closing.batchId, 1);
+        assertEq(closing.index, 19);
+        assertEq(bytes(closing.message).length, 0);
         _assertSolvent();
     }
 
@@ -193,7 +221,7 @@ contract AdversarialLifecycleTest is BegVaultBase {
         assertEq(vault.escrowedETH(), PRICE);
         assertEq(vault.getAttempt(1).message, "Keep this text when Intake returns no id");
         assertEq(vault.oracleTokenBudget(), 100 ether);
-        assertEq(imd.allowance(address(vault), address(intake)), 0);
+        assertEq(uint256(vault.getBatch(1).status), uint256(BegVault.Status.Open));
         vm.clearMockedCalls();
         vault.closeBatch();
         assertEq(intake.requests(), 1);
@@ -252,19 +280,20 @@ contract AdversarialLifecycleTest is BegVaultBase {
         uint256 length = bound(rawLength, 0, 21);
         if (length == size) length = (length + 1) % 22;
         _batch(size);
-        BegVault.Batch memory beforeBatch = vault.getBatch(1);
+        BegVault.BatchView memory beforeBatch = vault.getBatch(1);
+        bytes32 questionId = _questionId(1);
         OracleAttestation.Attestation memory a = _attestation(1, _scores(length, 50));
         bytes memory signature = _sign(a);
         vm.prank(address(intake));
         vm.expectRevert(BegVault.WrongScoreCount.selector);
-        vault.onOracleResult(beforeBatch.questionId, a, signature);
+        vault.onOracleResult(questionId, a, signature);
         assertFalse(vault.consumed(a.requestId));
         assertEq(keccak256(abi.encode(vault.getBatch(1))), keccak256(abi.encode(beforeBatch)));
         assertEq(vault.escrowedETH(), size * PRICE);
         assertEq(vault.totalClaimableETH(), 0);
         a.answer = abi.encode(_scores(size, 50));
         signature = _sign(a);
-        (bool ok,) = intake.deliver(beforeBatch.questionId, a, signature);
+        (bool ok,) = intake.deliver(questionId, a, signature);
         assertTrue(ok, "a rejected callback must not consume the request or UUID");
         assertTrue(vault.consumed(a.requestId));
         _assertSolvent();
@@ -272,7 +301,7 @@ contract AdversarialLifecycleTest is BegVaultBase {
 
     function testSignedFieldsCannotBeChangedAfterSigning() public {
         _batch(1);
-        bytes32 questionId = vault.getBatch(1).questionId;
+        bytes32 questionId = _questionId(1);
         for (uint256 field; field < 15; ++field) {
             OracleAttestation.Attestation memory a = _attestation(1, _scores(1, 50));
             a.agreed = 5; // Quorum and agreement mutations must still describe valid panels.
@@ -310,12 +339,170 @@ contract AdversarialLifecycleTest is BegVaultBase {
             new BegVault(address(token), TEAM, address(intake), address(imd), vm.addr(SIGNER_KEY), PRICE);
         OracleAttestation.Attestation memory a = _attestation(1, _scores(1, 50));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(SIGNER_KEY, other.attestationDigest(a));
-        bytes32 questionId = vault.getBatch(1).questionId;
+        bytes32 questionId = _questionId(1);
         vm.prank(address(intake));
         vm.expectRevert(OracleAttestationConsumer.BadSignature.selector);
         vault.onOracleResult(questionId, a, abi.encodePacked(r, s, v));
         assertFalse(vault.consumed(a.requestId));
         _grade(1, 50);
+    }
+
+    /// @dev A batch past its 30-minute window stops taking entries; the next entry opens a new batch and
+    ///      the stale one is left to the close cursor. Neither path may lose or double count an entry.
+    function testStaleOpenBatchIsLeftBehindAndClosedByTheCursorNotTheNewEntry() public {
+        _attempt(_player(1), "Early bird in batch one");
+        uint256 openedAt = vm.getBlockTimestamp();
+        vm.warp(openedAt + 30 minutes - 1);
+        _attempt(_player(2), "Still inside the window");
+        assertEq(vault.getAttempt(2).batchId, 1);
+        vm.warp(openedAt + 30 minutes);
+        uint256 id = _attempt(_player(3), "One second too late opens batch two");
+        assertEq(id, 3);
+        assertEq(vault.getAttempt(3).batchId, 2);
+        assertEq(vault.getAttempt(3).index, 0);
+        assertEq(vault.openBatchId(), 2);
+        assertEq(vault.nextToClose(), 1, "the stale batch is still the oldest open batch");
+        assertEq(vault.getBatch(1).size, 2);
+        assertEq(uint256(vault.getBatch(1).status), uint256(BegVault.Status.Open));
+        assertEq(vault.getBatch(2).openedAt, openedAt + 30 minutes);
+        assertEq(vault.escrowedETH(), 3 * PRICE);
+        // Closing by id the batch that is not ready reverts; the cursor closes the stale one.
+        vm.expectRevert(BegVault.BatchNotReady.selector);
+        vault.closeBatch(2);
+        vault.closeBatch();
+        assertEq(uint256(vault.getBatch(1).status), uint256(BegVault.Status.Pending));
+        assertEq(vault.nextToClose(), 2);
+        assertEq(vault.openBatchId(), 2, "closing an old batch must not skip the current one");
+        string memory body = string(intake.lastBody());
+        assertEq(vm.parseJsonKeys(body, ".definitions").length, 2);
+        assertEq(vm.parseJsonString(body, '.definitions["2"]'), "Still inside the window");
+        assertEq(vault.getAttempt(3).message, "One second too late opens batch two");
+        vm.expectRevert(BegVault.BatchNotReady.selector);
+        vault.closeBatch();
+        vm.warp(vm.getBlockTimestamp() + 30 minutes);
+        vault.closeBatch(2);
+        assertEq(vault.openBatchId(), 3);
+        assertEq(vault.nextToClose(), 3);
+        assertEq(intake.requests(), 2);
+        _grade(1, 10);
+        _grade(2, 90);
+        assertEq(vault.getAttempt(2).score, 10);
+        assertEq(vault.getAttempt(3).score, 90);
+        _assertSolvent();
+    }
+
+    function testTimedOutStaleBatchBlocksOnlyTheCursorUntilExpiredThenCursorAdvances() public {
+        _attempt(_player(1), "Nobody closes me in time");
+        vm.warp(vm.getBlockTimestamp() + 30 minutes + 24 hours);
+        _attempt(_player(2), "A day later the game continues");
+        assertEq(vault.openBatchId(), 2);
+        assertEq(vault.nextToClose(), 1);
+        vm.expectRevert(BegVault.BatchTimedOut.selector);
+        vault.closeBatch();
+        vm.warp(vm.getBlockTimestamp() + 30 minutes);
+        vm.expectRevert(BegVault.BatchTimedOut.selector);
+        vault.closeBatch();
+        vault.closeBatch(2);
+        assertEq(vault.openBatchId(), 3);
+        assertEq(vault.nextToClose(), 1, "a timed-out open batch keeps the cursor until it is expired");
+        vault.expireBatch(1);
+        assertEq(vault.nextToClose(), 3);
+        vm.prank(_player(1));
+        vault.refund(1);
+        vm.prank(_player(2));
+        vm.expectRevert(BegVault.InvalidBatchState.selector);
+        vault.refund(2);
+        assertEq(vault.escrowedETH(), PRICE);
+        _assertSolvent();
+    }
+
+    /// @dev `retire()` is the implementation's dead-man path. These assertions pin its guards and its
+    ///      accounting; the path itself is reported in .imd-findings.json as a deviation from the brief.
+    function testRetireRequiresThirtyDaysOfOracleSilenceAfterAnExpiryAndNoUnrevealedGrades() public {
+        _batch(2);
+        _batch(1);
+        _grade(1, 60);
+        vm.warp(vm.getBlockTimestamp() + 24 hours);
+        vm.expectRevert(BegVault.OracleAlive.selector);
+        vault.retire();
+        vault.expireBatch(2);
+        uint256 failingSince = vm.getBlockTimestamp();
+        assertEq(vault.failingSince(), failingSince);
+        vm.warp(failingSince + 30 days - 1);
+        vm.expectRevert(BegVault.OracleAlive.selector);
+        vault.retire();
+        vm.warp(failingSince + 30 days);
+        vm.expectRevert(BegVault.InvalidBatchState.selector);
+        vault.retire();
+        assertEq(vault.unrevealedGraded(), 1);
+        // A successful grade in the meantime resets the clock entirely.
+        _attempt(_player(7), "Proof of life for the oracle");
+        vm.warp(vm.getBlockTimestamp() + 30 minutes);
+        vault.closeBatch();
+        _grade(3, 1);
+        assertEq(vault.failingSince(), 0);
+        _reveal(1, keccak256("batch one hash"));
+        _reveal(3, keccak256("batch three hash"));
+        assertEq(vault.unrevealedGraded(), 0);
+        vm.warp(vm.getBlockTimestamp() + 31 days);
+        vm.expectRevert(BegVault.OracleAlive.selector);
+        vault.retire();
+        assertFalse(vault.retired());
+        vm.prank(_player(3));
+        vault.refund(3);
+        _assertSolvent();
+    }
+
+    function testRetiredVaultStaysSolventKeepsRefundsAndRejectsNewPlay() public {
+        _batch(1);
+        vm.warp(vm.getBlockTimestamp() + 24 hours);
+        vault.expireBatch(1);
+        _attempt(_player(5), "Open when the vault retires");
+        vault.fundOracle{value: 0.3 ether}();
+        vm.warp(vm.getBlockTimestamp() + 30 days - 1);
+        vm.expectRevert(BegVault.OracleAlive.selector);
+        vault.retire();
+        vm.warp(vm.getBlockTimestamp() + 1);
+        uint256 free = vault.vaultFreeBalance();
+        vm.prank(_player(9));
+        vault.retire();
+        assertTrue(vault.retired());
+        (uint128 teamTokens, uint128 teamETH) = vault.claimable(TEAM);
+        assertEq(teamTokens, free);
+        assertEq(teamETH, 0.3 ether, "escrow of unsettled entries must never be swept");
+        assertEq(vault.vaultFreeBalance(), 0);
+        assertEq(vault.jackpotBank(), 0);
+        assertEq(vault.oracleBudget(), 0);
+        assertEq(vault.escrowedETH(), 2 * PRICE);
+        vm.expectRevert(BegVault.NothingToClaim.selector);
+        vault.retire();
+        vm.expectRevert(BegVault.VaultRetired.selector);
+        vault.attempt{value: PRICE}("Nobody may play a retired vault");
+        vm.expectRevert(BegVault.VaultRetired.selector);
+        vault.closeBatch();
+        vm.expectRevert(BegVault.VaultRetired.selector);
+        vault.closeBatch(2);
+        // The open batch may be expired at once and every entry refunded in full.
+        vault.expireBatch(2);
+        vm.prank(_player(1));
+        vault.refund(1);
+        vm.prank(_player(5));
+        vault.refund(2);
+        assertEq(vault.escrowedETH(), 0);
+        vm.prank(_player(5));
+        vault.claim();
+        assertEq(_player(5).balance, PRICE);
+        // Tokens that arrive later are swept again by anyone, never minted or duplicated.
+        token.transfer(address(vault), 1234);
+        vault.retire();
+        (teamTokens,) = vault.claimable(TEAM);
+        assertEq(teamTokens, free + 1234);
+        vm.prank(TEAM);
+        vault.claim();
+        assertEq(token.balanceOf(TEAM), free + 1234);
+        assertEq(TEAM.balance, 0.3 ether);
+        assertEq(token.balanceOf(address(vault)), 0);
+        _assertSolvent();
     }
 
     function testAttestationTimeToleranceAndExpiryAreInclusiveAtTheirBoundaries() public {
@@ -324,13 +511,13 @@ contract AdversarialLifecycleTest is BegVaultBase {
         a.issuedAt -= 300;
         a.expiresAt = uint64(vm.getBlockTimestamp());
         bytes memory signature = _sign(a);
-        (bool ok,) = intake.deliver(vault.getBatch(1).questionId, a, signature);
+        (bool ok,) = intake.deliver(_questionId(1), a, signature);
         assertTrue(ok, "issuance at close minus tolerance and expiry at now are valid");
         _batch(1);
         a = _attestation(2, _scores(1, 100));
         a.issuedAt += 300;
         signature = _sign(a);
-        (ok,) = intake.deliver(vault.getBatch(2).questionId, a, signature);
+        (ok,) = intake.deliver(_questionId(2), a, signature);
         assertTrue(ok, "issuance at now plus tolerance is valid");
         _assertSolvent();
     }

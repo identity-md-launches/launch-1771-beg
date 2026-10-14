@@ -18,7 +18,8 @@ contract SiteEventsAndMessagesTest is BegVaultBase {
         vm.expectEmit(true, true, false, true, address(vault));
         emit BegVault.BatchClosed(1, questionId, 2);
         vault.closeBatch();
-        assertEq(vault.getBatch(1).questionId, questionId);
+        assertEq(_questionId(1), questionId);
+        assertEq(vault.questionBatch(questionId), 1);
         (address callbackTarget, bytes4 callbackSelector) = intake.callbacks(questionId);
         assertEq(callbackTarget, address(vault));
         assertEq(callbackSelector, vault.onOracleResult.selector);
@@ -95,7 +96,7 @@ contract SiteEventsAndMessagesTest is BegVaultBase {
     function testLateIgnoredCallbackDoesNotEmitAnotherGradeOrExpiry() public {
         _batch(1);
         OracleAttestation.Attestation memory a = _attestation(1, _scores(1, 100));
-        bytes32 questionId = vault.getBatch(1).questionId;
+        bytes32 questionId = _questionId(1);
         vm.warp(vm.getBlockTimestamp() + 24 hours);
         vault.expireBatch(1);
         vm.recordLogs();
@@ -122,7 +123,7 @@ contract SiteEventsAndMessagesTest is BegVaultBase {
                 "Low-effort or copied messages score near 0. Return one integer per message in definition order."
             )
         );
-        assertEq(vm.parseJsonKeys(body, ".").length, 12);
+        assertEq(vm.parseJsonKeys(body, ".").length, 11);
         assertEq(vm.parseJsonKeys(body, ".definitions").length, 20);
         uint256 previous;
         for (uint256 i; i < 20; ++i) {
@@ -170,32 +171,61 @@ contract SiteEventsAndMessagesTest is BegVaultBase {
         _assertSolvent();
     }
 
-    function testUnclosedExpirationErasesPlaintextStorageBeforeBufferReuse() public {
-        bytes memory message = new bytes(280);
-        for (uint256 i; i < message.length; ++i) {
-            message[i] = 0x79;
+    /// @dev The closing entry of an auto-closed batch creates no data contract, so every later entry's
+    ///      pointer is one creation nonce behind its attempt id. A wrong skew would make the next
+    ///      close read the wrong (or an empty) code and send the wrong definitions to the oracle.
+    function testMessagePointersSurviveAutoCloseSkewAndRemainReadableOnlyWhileOpen() public {
+        for (uint256 i = 1; i <= 20; ++i) {
+            _attempt(_player(i), string.concat("First batch entry ", vm.toString(i)));
         }
-        vm.record();
-        vault.attempt{value: PRICE}(string(message));
-        (, bytes32[] memory writes) = vm.accesses(address(vault));
-        bytes32 fullWord = 0x7979797979797979797979797979797979797979797979797979797979797979;
-        bytes32 tail = fullWord & bytes32(type(uint256).max << 64);
-        bytes32[] memory textSlots = new bytes32[](9);
-        uint256 count;
-        for (uint256 i; i < writes.length; ++i) {
-            bytes32 value = vm.load(address(vault), writes[i]);
-            if (value == fullWord || value == tail) textSlots[count++] = writes[i];
-        }
-        assertEq(count, 9, "fixture must locate all nine stored message words");
+        assertEq(vault.autoClosed(), 1);
+        assertEq(vault.getBatch(1).firstNonce, 1);
+        assertEq(vault.messagePointer(1, 18), vm.computeCreateAddress(address(vault), 19));
+        assertEq(vault.messagePointer(1, 19).code.length, 0, "the closing entry must not deploy code");
+        string memory raw = unicode"Second batch: \"quoted\" \\ back\\slash\n😀 end";
+        _attempt(_player(21), raw);
+        _attempt(_player(22), "Second batch plain");
+        assertEq(vault.getBatch(2).firstAttemptId, 21);
+        assertEq(vault.getBatch(2).firstNonce, 20);
+        address pointer = vault.messagePointer(2, 0);
+        assertEq(pointer, vm.computeCreateAddress(address(vault), 20));
+        assertGt(pointer.code.length, 3);
+        assertEq(uint8(pointer.code[0]), 0, "data contracts must start with STOP");
+        assertEq(vault.getAttempt(21).message, raw);
+        assertEq(vault.getAttempt(22).message, "Second batch plain");
+        vm.expectRevert(BegVault.UnknownAttempt.selector);
+        vault.getAttempt(23);
+        vm.warp(vm.getBlockTimestamp() + 30 minutes);
+        vault.closeBatch();
+        string memory body = string(intake.lastBody());
+        assertEq(vm.parseJsonKeys(body, ".definitions").length, 2);
+        assertEq(vm.parseJsonString(body, '.definitions["1"]'), raw);
+        assertEq(vm.parseJsonString(body, '.definitions["2"]'), "Second batch plain");
+        assertEq(vault.getAttempt(21).message, "", "messages are only served while the batch is open");
+        assertEq(pointer.code.length > 0, true, "data contracts are immutable and persist after close");
+        // A third batch after a timed close has no additional skew.
+        _attempt(_player(23), "Third batch entry");
+        assertEq(vault.getBatch(3).firstNonce, 22);
+        assertEq(vault.messagePointer(3, 0), vm.computeCreateAddress(address(vault), 22));
+        assertEq(vault.getAttempt(23).message, "Third batch entry");
+        _assertSolvent();
+    }
+
+    function testExpiredOpenBatchStopsServingMessagesAndNewBatchStartsCleanly() public {
+        _attempt(_player(1), "An unclosed batch that nobody funds");
         vm.warp(vm.getBlockTimestamp() + 30 minutes + 24 hours);
         vault.expireBatch(1);
-        for (uint256 i; i < textSlots.length; ++i) {
-            bytes32 value = vm.load(address(vault), textSlots[i]);
-            assertTrue(value != fullWord && value != tail, "expired plaintext remains in active storage");
-        }
-        vault.attempt{value: PRICE}("A new buffer occupant");
         assertEq(vault.getAttempt(1).message, "");
-        assertEq(vault.getAttempt(2).message, "A new buffer occupant");
+        assertEq(uint256(vault.getBatch(1).status), uint256(BegVault.Status.Expired));
+        assertEq(vault.getBatch(1).closedAt, vault.getBatch(1).closedAt);
+        assertEq(vault.openBatchId(), 2);
+        assertEq(vault.nextToClose(), 2);
+        vault.attempt{value: PRICE}("A new batch occupant");
+        assertEq(vault.getAttempt(1).message, "");
+        assertEq(vault.getAttempt(2).message, "A new batch occupant");
+        assertEq(vault.getAttempt(2).batchId, 2);
+        assertEq(vault.getAttempt(2).index, 0);
+        _assertSolvent();
     }
 
     function _indexOf(bytes memory haystack, bytes memory needle) private pure returns (uint256) {

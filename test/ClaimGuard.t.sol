@@ -34,9 +34,9 @@ contract AllEntrypointsReceiver {
     receive() external payable {
         (uint128 tokens, uint128 eth) = vault.claimable(address(this));
         observedClearedCredit = tokens == 0 && eth == 0;
-        bytes[] memory calls = new bytes[](9);
+        bytes[] memory calls = new bytes[](11);
         calls[0] = abi.encodeCall(vault.attempt, ("reentrant submission"));
-        calls[1] = abi.encodeCall(vault.closeBatch, ());
+        calls[1] = abi.encodeWithSignature("closeBatch()");
         OracleAttestation.Attestation memory a;
         calls[2] = abi.encodeCall(vault.onOracleResult, (bytes32(0), a, bytes("")));
         calls[3] = abi.encodeCall(vault.expireBatch, (uint256(1)));
@@ -45,6 +45,8 @@ contract AllEntrypointsReceiver {
         calls[6] = abi.encodeCall(vault.claim, ());
         calls[7] = abi.encodeWithSignature("fundOracle(uint256)", uint256(0));
         calls[8] = abi.encodeWithSignature("fundOracle()");
+        calls[9] = abi.encodeWithSignature("closeBatch(uint256)", uint256(1));
+        calls[10] = abi.encodeCall(vault.retire, ());
         bytes32 expected = keccak256(abi.encodeWithSignature("ReentrancyGuardReentrantCall()"));
         for (uint256 i; i < calls.length; ++i) {
             (bool ok, bytes memory result) = address(vault).call(calls[i]);
@@ -68,7 +70,7 @@ contract ClaimGuardTest is BegVaultBase {
         uint256 freeBefore = vault.vaultFreeBalance();
         receiver.collectAndRetry();
         assertTrue(receiver.observedClearedCredit());
-        assertEq(receiver.guardedCalls(), 9);
+        assertEq(receiver.guardedCalls(), 11);
         assertEq(receiver.secondClaimResult(), abi.encodeWithSelector(BegVault.NothingToClaim.selector));
         assertEq(token.balanceOf(address(receiver)), tokens);
         assertEq(address(receiver).balance, eth);
@@ -90,7 +92,7 @@ contract ClaimGuardTest is BegVaultBase {
         receiver.collectAndRetry();
         assertEq(address(receiver).balance, PRICE);
         assertTrue(receiver.observedClearedCredit());
-        assertEq(receiver.guardedCalls(), 9);
+        assertEq(receiver.guardedCalls(), 11);
         assertEq(receiver.secondClaimResult(), abi.encodeWithSelector(BegVault.NothingToClaim.selector));
         assertTrue(vault.getAttempt(1).refunded);
         _assertSolvent();
