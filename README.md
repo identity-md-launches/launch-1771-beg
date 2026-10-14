@@ -215,14 +215,16 @@ Events: `AttemptSubmitted`, `BatchClosed`, `BatchGraded`, `Rolled`, `BatchExpire
 `Claimed`, `OracleFunded`, and `RollRearmed`. `OracleFunded` includes the asset; its zero address
 means native ETH, not an unspecified external contract. Index submissions for message history.
 
-## Dead-man path
+## No dead-man path
 
-Nothing can rotate the signer, action or Intake. If the oracle stops answering, batches expire and
-refund, and after `RETIRE_DELAY` (30 days) with no successful grade since the first expiry, anyone
-may call `retire()`: the free BEG, jackpot bank and bounty budget become the team's claimable
-credits, new attempts revert `VaultRetired`, and open batches may be expired at once for refunds.
-This is a trust assumption on the team: an oracle outage returns the prize pool to the requester.
-Any successful grade resets the clock, and anyone can fund IMD and close a batch to keep it alive.
+Nothing can rotate the signer, action or Intake, and nothing can sweep, retire or pause the vault.
+BEG leaves only through roll credits, ETH only through refunds, graded-escrow splits, jackpots and
+revealer bounties. An earlier revision had a permissionless `retire()` that handed the free BEG
+and the ETH banks to the team after thirty days without a grade; it was removed because the brief
+forbids any admin or pause and names no beneficiary but the players, and because its clock could be
+started by anyone simply by leaving one batch's IMD fee unfunded. The consequence is accepted and
+stated here: if the oracle stops answering forever, entries keep expiring and refunding, but the
+prize pool stays in the vault until a grade arrives. Anyone can fund IMD and close a batch to resume.
 
 ## After launch
 

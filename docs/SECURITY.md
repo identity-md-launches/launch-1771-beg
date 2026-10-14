@@ -41,6 +41,10 @@ This is a local design/code review and test record, not an independent audit or 
    resistance. Protocol writer binding of a callback to a request is trusted for the relative window.
 3. One immutable signer and Intake cannot rotate locally. External protocol failure can permanently
    stop future grading. Timeouts preserve entry refunds; already-spent donor IMD fees cannot be recovered.
+   There is deliberately no dead-man, retire or sweep path: a permanent oracle outage leaves the
+   prize pool in the vault rather than giving anyone, the team included, a way to take it or to
+   close the game. The brief forbids an admin or pause, and a timed sweep could be armed by anyone
+   who let one batch's IMD fee go unfunded.
 4. The oracle fee asset and entry fee asset differ. ETH revenue funds bounties, while independent IMD
    funding remains an operational responsibility. The project intentionally includes no unrequested
    exchange route or configurable keeper with access to escrow.

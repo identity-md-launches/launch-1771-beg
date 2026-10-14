@@ -5,7 +5,7 @@ Validated with Foundry 1.8.3 and the repository's pinned Solidity 0.8.26 configu
 | Check | Result |
 | --- | --- |
 | `forge build` | Pass |
-| `forge test` with the assignment's seed | 65 tests passed; zero failures or skips (revision of 2026-10-14) |
+| `forge test` with the assignment's seed | 67 tests passed; zero failures or skips (second revision of 2026-10-14, after the dead-man path was removed) |
 | Stateful accounting suite | Four invariants, 128 runs × 64 calls = 8,192 actions; zero handler reverts |
 | Mixed 280-byte message gas fuzzing | 10,000 cases passed the 250,000 ceiling including conservative transaction overhead |
 | `forge fmt --check` | Pass |

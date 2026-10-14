@@ -94,7 +94,6 @@ contract BegVault is OracleAttestationConsumer, ReentrancyGuardTransient {
 
     error InvalidConfiguration();
     error VaultEmpty();
-    error VaultRetired();
     error WrongPayment();
     error InvalidMessageLength();
     error DuplicateMessage();
@@ -102,7 +101,6 @@ contract BegVault is OracleAttestationConsumer, ReentrancyGuardTransient {
     error BatchNotReady();
     error BodyTooLarge();
     error OracleUnfunded();
-    error OracleAlive();
     error InvalidQuestionId();
     error NotIntake();
     error UnknownBatch();
@@ -138,14 +136,11 @@ contract BegVault is OracleAttestationConsumer, ReentrancyGuardTransient {
     event Claimed(address indexed player, uint256 tokenAmount, uint256 ethAmount);
     event OracleFunded(address indexed funder, address indexed asset, uint256 amount);
     event RollRearmed(uint256 indexed batchId, uint256 rollBlock, uint8 missedWindows);
-    event Retired(uint256 tokenAmount, uint256 ethAmount);
 
     uint256 public constant DEFAULT_ATTEMPT_PRICE = 0.005 ether;
     uint256 public constant COOLDOWN = 10 minutes;
     uint256 public constant BATCH_WINDOW = 30 minutes;
     uint256 public constant ORACLE_TIMEOUT = 24 hours;
-    /// @notice Oracle silence after an expired batch that lets anyone retire the vault to the team.
-    uint256 public constant RETIRE_DELAY = 30 days;
     uint256 public constant REVEALER_BOUNTY = 0.001 ether;
     uint256 public constant MAX_BATCH_SIZE = 20;
     uint256 public constant MAX_MESSAGE_BYTES = 280;
@@ -172,15 +167,12 @@ contract BegVault is OracleAttestationConsumer, ReentrancyGuardTransient {
     /// @notice Oldest batch that may still be open; `closeBatch()` closes it.
     uint40 public nextToClose = 1;
     uint88 public escrowedETH;
-    bool public retired;
 
-    // One slot, rewritten by every grade.
+    // One slot, rewritten by every grade. Tokens and ETH only ever leave through rolls, refunds and
+    // the revealer bounty: there is no owner, pause, sweep or dead-man path.
     uint96 public jackpotBank;
     /// @notice ETH reserved for revealer bounties; never mixed with IMD units.
     uint96 public oracleBudget;
-    /// @notice When the first batch since the last successful grade expired; zero while the oracle answers.
-    uint40 public failingSince;
-    uint24 public unrevealedGraded;
     uint128 public totalClaimableETH;
     uint128 public totalClaimableTokens;
 
@@ -212,7 +204,6 @@ contract BegVault is OracleAttestationConsumer, ReentrancyGuardTransient {
     }
 
     function attempt(string calldata message) external payable nonReentrant returns (uint256 attemptId) {
-        if (retired) revert VaultRetired();
         if (msg.value != ATTEMPT_PRICE) revert WrongPayment();
         bytes calldata text = bytes(message);
         if (text.length == 0 || text.length > MAX_MESSAGE_BYTES) revert InvalidMessageLength();
@@ -269,7 +260,6 @@ contract BegVault is OracleAttestationConsumer, ReentrancyGuardTransient {
     }
 
     function _close(uint256 batchId) private {
-        if (retired) revert VaultRetired();
         Batch storage b = _batches[batchId];
         if (b.size == 0 || b.status != Status.Open || block.timestamp < uint256(b.since) + BATCH_WINDOW) {
             revert BatchNotReady();
@@ -346,8 +336,6 @@ contract BegVault is OracleAttestationConsumer, ReentrancyGuardTransient {
         b.prevrandao = block.prevrandao;
         b.rollBlock = uint40(block.number + 2);
         b.status = Status.Graded;
-        if (failingSince != 0) failingSince = 0;
-        ++unrevealedGraded;
         uint256 escrow = ATTEMPT_PRICE * b.size;
         uint256 tenth = escrow / 10;
         // The ETH tenth only needs to fund this batch's revealer bounty; Intake is paid in IMD.
@@ -366,9 +354,7 @@ contract BegVault is OracleAttestationConsumer, ReentrancyGuardTransient {
             if (block.timestamp < uint256(b.since) + ORACLE_TIMEOUT) revert TooEarly();
         } else if (b.status == Status.Open) {
             // Also releases entries if Intake is unfunded, unavailable or rejects requests forever.
-            if (!retired && block.timestamp < uint256(b.since) + BATCH_WINDOW + ORACLE_TIMEOUT) {
-                revert TooEarly();
-            }
+            if (block.timestamp < uint256(b.since) + BATCH_WINDOW + ORACLE_TIMEOUT) revert TooEarly();
             if (batchId == openBatchId) openBatchId = uint40(batchId) + 1;
         } else {
             revert InvalidBatchState();
@@ -379,7 +365,6 @@ contract BegVault is OracleAttestationConsumer, ReentrancyGuardTransient {
 
     function _expire(uint256 batchId, Batch storage b) private {
         b.status = Status.Expired;
-        if (failingSince == 0) failingSince = uint40(block.timestamp);
         emit BatchExpired(batchId);
     }
 
@@ -418,7 +403,6 @@ contract BegVault is OracleAttestationConsumer, ReentrancyGuardTransient {
         bytes32 seed = keccak256(abi.encode(rollHash, b.prevrandao, batchId, address(this)));
         b.seed = seed;
         b.status = Status.Revealed;
-        --unrevealedGraded;
         Tier maxTier = Tier(uint8(Tier.Jackpot) - b.missedWindows);
         uint256 free = vaultFreeBalance();
         uint96 bank = jackpotBank;
@@ -477,29 +461,6 @@ contract BegVault is OracleAttestationConsumer, ReentrancyGuardTransient {
             if (!ok) revert ETHTransferFailed();
         }
         emit Claimed(msg.sender, credit.tokens, credit.eth);
-    }
-
-    /// @notice Dead-man path: once the oracle has answered nothing for 30 days after a batch expired,
-    ///         anyone may hand the prize pool and banks back to the team instead of leaving them
-    ///         locked forever. Repeat calls sweep tokens that arrive later. Refunds stay available.
-    function retire() external nonReentrant {
-        if (!retired) {
-            if (failingSince == 0 || block.timestamp < uint256(failingSince) + RETIRE_DELAY) {
-                revert OracleAlive();
-            }
-            if (unrevealedGraded != 0) revert InvalidBatchState();
-            retired = true;
-        }
-        uint256 tokens = vaultFreeBalance();
-        uint256 eth = uint256(jackpotBank) + oracleBudget;
-        if (tokens == 0 && eth == 0) revert NothingToClaim();
-        jackpotBank = 0;
-        oracleBudget = 0;
-        claimable[team].tokens += uint128(tokens);
-        claimable[team].eth += uint128(eth);
-        totalClaimableTokens += uint128(tokens);
-        totalClaimableETH += uint128(eth);
-        emit Retired(tokens, eth);
     }
 
     /// @notice IMD donations pay Intake. Exact received amounts are reported, including transfer fees.

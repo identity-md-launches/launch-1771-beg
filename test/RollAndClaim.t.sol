@@ -126,7 +126,6 @@ contract RollAndClaimTest is BegVaultBase {
         }
         (, uint128 bounty) = vault.claimable(address(this));
         assertEq(bounty, 0.001 ether);
-        assertEq(vault.unrevealedGraded(), 0);
         _assertSolvent();
     }
 

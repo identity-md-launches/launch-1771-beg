@@ -73,10 +73,6 @@ contract VaultHandler is Test {
         intake.deliver(questionId, a, abi.encodePacked(r, s, v));
     }
 
-    function retire() external {
-        try vault.retire() {} catch {}
-    }
-
     function _questionId(uint256 batchId) private view returns (bytes32) {
         for (uint256 n = intake.requests(); n > 0; --n) {
             bytes32 id = keccak256(abi.encode(n));
@@ -143,7 +139,7 @@ contract VaultInvariantTest is BegVaultBase {
         super.setUp();
         intake.setRecordBody(false);
         handler = new VaultHandler(vault, intake, TEAM, SIGNER_KEY);
-        bytes4[] memory selectors = new bytes4[](10);
+        bytes4[] memory selectors = new bytes4[](9);
         selectors[0] = handler.enter.selector;
         selectors[1] = handler.advance.selector;
         selectors[2] = handler.close.selector;
@@ -153,7 +149,6 @@ contract VaultInvariantTest is BegVaultBase {
         selectors[6] = handler.refund.selector;
         selectors[7] = handler.claim.selector;
         selectors[8] = handler.fund.selector;
-        selectors[9] = handler.retire.selector;
         targetSelector(FuzzSelector(address(handler), selectors));
         targetContract(address(handler));
     }
