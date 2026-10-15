@@ -1,0 +1,5 @@
+# Path budget: this file <= 256 bytes; generated dependency/cache content: 0 submitted bytes.
+**/node_modules/
+**/.vite/
+**/.cache/
+*.tsbuildinfo

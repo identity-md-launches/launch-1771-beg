@@ -4,6 +4,54 @@ An Ethereum mainnet Foundry project with a fixed-supply `LaunchToken` and an imm
 The vault has no owner, admin, setters, pause, upgrade, arbitrary withdrawal, or delegatecall.
 All dependencies needed to build and test are ordinary source files in `lib/`.
 
+## Website
+
+The static $BEG app is delivered in [`dist/`](dist/index.html), with its React/TypeScript source and independent npm manifest/lockfile in [`web/`](web/). It connects to the **existing Ethereum mainnet deployment**; no contracts were changed or deployed by the website task.
+
+### Install, run and rebuild
+
+Use Node.js 22.12+ (or 24) and npm:
+
+```sh
+cd web
+npm ci
+npm run dev
+```
+
+Production and local preview:
+
+```sh
+cd web
+npm run typecheck
+npm test
+npm run build
+npm run preview
+```
+
+`npm run build` checks TypeScript and writes `../dist/`. Vite's base is `./`; all runtime assets are local and relative. Serve the complete `dist/` directory over HTTP(S), including its `assets/` directory, favicon, share image and wallet marks. Hash navigation works at gateway subpaths without a server-side route rewrite. The committed export is the deployable artifact; hosting is handled outside this assignment. No environment file, API key, relay, backend, or analytics service is required. Dependencies/caches are ignored and are not part of the submission.
+
+### Using the app
+
+Read balances, odds, messages and rankings without a wallet. Enter up to 280 UTF-8 bytes and select **Beg** to connect through a discovered browser wallet. Connections automatically request Ethereum mainnet. Phones can open the current URL in MetaMask, Coinbase Wallet, Rabby or Phantom; Coinbase Smart Wallet is also available without a relay project ID. Real wallet-app handoff and passkey creation need a device/account and were not exercised during validation.
+
+The exact entry fee is 0.005 ETH plus gas. Each write first checks the connected account/network and verified vault runtime, then simulates the exact transaction with `eth_call` and estimates gas. A failed simulation never proceeds to `eth_sendTransaction`. A changed chain or account is checked again immediately before sending. Refunds credit claimable ETH; a subsequent **Claim rewards** withdraws it. IMD funding requires an explicit allowance approval followed by `fundOracle(uint256)`. Donations are not refundable. The page explains the capped revealer budget and the consequences of missed reveal windows.
+
+[Trade BEG on Uniswap](https://app.uniswap.org/explore/tokens/ethereum/0x99e176e02691be327a3a00637d4a893c58264d0c) · [Verified BegVault](https://eth.blockscout.com/address/0x5c0a76dff019df3a3a118080ae3f073dc02bad13?tab=contract) · [X](https://x.com/imdplace).
+
+### Data and integrity
+
+`web/src/config.ts` contains the pinned chain, addresses, runtime hash and exact compiled ABIs. Both canonical ABI hashes match the deployment inputs. The vault ABI also matches the verified Blockscout ABI after normalizing entry order. The deployment transaction was checked at block **26,193,895**. See [`artifacts/contract-verification.json`](artifacts/contract-verification.json).
+
+PublicNode, LlamaRPC and Cloudflare requests use a staggered first-success race with a **4-second deadline per endpoint**. Transport failures temporarily cool down an endpoint. State is refreshed every 15 seconds while visible, and immediately when returning to the tab. An independent event indexer scans bounded ranges from the deployment block, adapts down from 2,000 blocks if providers reject the range, stores progress in IndexedDB, and rechecks the latest 64 blocks for shallow reorganizations. Summary state is cached in localStorage and rendered immediately on reload. Storage denial falls back to memory. Deep reorganizations beyond 64 blocks require clearing this site's stored data; all views remain reconstructible from chain logs. Rankings are explicitly partial until indexing reaches the read head.
+
+Live RPCs can be slow, rate limited or blocked by browser CORS. The UI labels stale/unavailable reads and disables writes without fresh verified state. During validation PublicNode served live data; LlamaRPC sometimes failed CORS. No sample entries or synthetic balances ship in the app. Test fixtures exist only under `web/tests/` and never enter the production bundle.
+
+### Website validation
+
+Actual results, limitations, six-domain design review, screenshots and reproducible browser commands are in [`artifacts/validation.md`](artifacts/validation.md). The design system is in [`DESIGN.md`](DESIGN.md), and a ready-to-use PR description with each section's screenshot is in [`artifacts/PR.md`](artifacts/PR.md).
+
+The production build, TypeScript check and 12 focused automated tests passed. Browser validation exercised all eight simulated write flows, wallet rejection and switching, UTF-8 validation, filters, odds, cached offline reads, and responsive layouts. The final pinned design probe passed **16/16**. Final Lighthouse mobile performance was **91 and 88** across two cold runs, both above the required 80; the measurements are retained in [`artifacts/lighthouse.json`](artifacts/lighthouse.json). No real transaction was signed or broadcast. WebKit could not run because required system libraries were unavailable; physical wallet apps, a screen-reader session and native browser zoom remain unverified.
+
 ## Build and test
 
 ```sh

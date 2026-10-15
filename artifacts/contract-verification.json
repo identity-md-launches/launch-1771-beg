@@ -1,0 +1,21 @@
+{
+  "sourceCommit": "c97ea8b9742a756ef19a451d2170870a2df32371",
+  "localSourceEqualsPinnedGitHub": true,
+  "sourceUrl": "https://raw.githubusercontent.com/identity-md-launches/launch-1771-beg/c97ea8b9742a756ef19a451d2170870a2df32371/src/BegVault.sol",
+  "abiHashes": {
+    "BegVault": "0xb78395d0d94547990186d2a95fba1c64e408775b66da6d528a39aedede204db4",
+    "LaunchToken": "0x38880b8e56d42ce900f744a7908c7139632a49f1c3f33385c64ceaed29d37bee"
+  },
+  "abiCanonicalization": "Recursively lexicographically sort object keys, preserve array order, compact JSON, keccak256 UTF-8 bytes.",
+  "compiledVaultAbiMatchesVerifiedEntrySet": true,
+  "blockscoutVerified": true,
+  "runtimeKeccak256": "0xf699b3f7f88186815e72ce400e3da2c951fc0247bf710d2f061674215d366d4c",
+  "deployTransaction": {
+    "hash": "0x62c5da78abeb12e9c90fe49dea664ec4d402d112b7000e997b0d3561dc0da284",
+    "block": 26193895,
+    "status": "ok",
+    "timestamp": "2026-10-14T23:01:23.000000Z"
+  },
+  "verificationEndpoint": "https://eth.blockscout.com/api/v2/smart-contracts/0x5c0a76dff019df3a3a118080ae3f073dc02bad13",
+  "runtimeGate": "The browser checks eth_chainId, eth_getCode runtime hash, token(), imd(), ATTEMPT_PRICE() before writes. Every write uses public eth_call with exact from/to/data/value."
+}

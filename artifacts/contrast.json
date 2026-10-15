@@ -1,0 +1,38 @@
+[
+  {
+    "selector": ".primary",
+    "foreground": "rgb(7, 7, 11)",
+    "background": "rgb(255, 200, 61)",
+    "ratio": 13.01
+  },
+  {
+    "selector": ".hero-description",
+    "foreground": "rgb(166, 164, 179)",
+    "background": "rgb(7, 7, 11)",
+    "ratio": 8.22
+  },
+  {
+    "selector": ".odds-row.tier-0>span",
+    "foreground": "rgb(255, 77, 77)",
+    "background": "rgb(16, 16, 21)",
+    "ratio": 5.8
+  },
+  {
+    "selector": ".odds-row.tier-4>span",
+    "foreground": "rgb(255, 200, 61)",
+    "background": "rgb(16, 16, 21)",
+    "ratio": 12.27
+  },
+  {
+    "selector": ".odds-row.tier-3>span",
+    "foreground": "rgb(169, 157, 255)",
+    "background": "rgb(16, 16, 21)",
+    "ratio": 8.09
+  },
+  {
+    "selector": ".stat-value",
+    "foreground": "rgb(255, 200, 61)",
+    "background": "rgb(16, 16, 21)",
+    "ratio": 12.27
+  }
+]

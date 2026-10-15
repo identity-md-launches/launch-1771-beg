@@ -1,0 +1,38 @@
+{
+  "at": "2026-10-15T07:01:51.583Z",
+  "results": [
+    "Empty message: inline error and textarea focus",
+    "UTF-8 284-byte message blocked before wallet",
+    "EIP-6963 discovery, rejection recovery, automatic switch to mainnet",
+    "Beg: exact eth_call before wallet send; receipt confirmation and form reset",
+    "Duplicate precheck prevents wallet send",
+    "Simulation rejection prevents wallet send",
+    "Odds slider: onchain response at scores 0 and 100",
+    "Feed filtering, raw untrusted HTML displayed as text",
+    "Hall of fame jackpot filter",
+    "Claim, refund, closeBatch(uint256), expireBatch, reveal, approve, fundOracle(uint256): all simulated and confirmed",
+    "axe: 29 checks passed, zero violations in populated fixture",
+    "Layout 320px: no overflow",
+    "Layout 375px: no overflow",
+    "Layout 390px: no overflow, Beg visible above fold",
+    "Layout 768px: no overflow",
+    "Layout 1440px: no overflow",
+    "Actual live RPC export: section screenshots + mobile first screen, zero uncaught script errors",
+    "Six actual rendered text/background pairs measured above 4.5:1",
+    "Native wallet dialog: keyboard focus stays inside, Escape closes, focus returns to its trigger",
+    "Offline reload: cached state appears and failed reads are labelled; draft input remains usable",
+    "WebKit not performed: Required WebKit system libraries are unavailable; Chromium checks completed."
+  ],
+  "simulatedWrites": [
+    "attempt",
+    "claim",
+    "refund",
+    "closeBatch",
+    "expireBatch",
+    "reveal",
+    "approve",
+    "fundOracle"
+  ],
+  "screenshots": "artifacts/screenshots",
+  "liveState": "Screenshots use actual RPC responses. fixture-desktop.jpg uses synthetic test data, never shown by the shipped app."
+}

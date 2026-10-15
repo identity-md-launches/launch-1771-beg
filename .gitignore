@@ -2,3 +2,13 @@
 /cache/
 /broadcast/
 /test/scratch/
+# Submission path budget: this file <= 512 bytes; generated caches: 0 bytes.
+!dist/
+!dist/**
+!artifacts/
+!artifacts/**
+**/node_modules/
+**/.vite/
+**/.cache/
+*.tsbuildinfo
+/.playwright-mcp/

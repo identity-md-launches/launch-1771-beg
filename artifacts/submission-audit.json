@@ -1,0 +1,17 @@
+{
+  "submittedFileCount": 163,
+  "uncompressedCurrentTreeBytes": 4374291,
+  "completeGitBundleUpperBoundBytes": 3145728,
+  "bundleAuditMethod": "All deliverable files copied into an isolated full upstream clone at pinned source commit, temporary commit created, complete git bundle --all measured under stated upper bound. Temporary repository and bundle are not submitted.",
+  "maximumBytes": 8388608,
+  "generatedDependenciesIncluded": [],
+  "submodules": false,
+  "relativeEntrypointAssetsExist": true,
+  "shareImageIsPNG": true,
+  "pathBytes": {
+    "web/": 730774,
+    "dist/": 680706,
+    "artifacts/": 1642953,
+    "lib/": 1027711
+  }
+}
