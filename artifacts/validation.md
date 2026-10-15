@@ -1,5 +1,7 @@
 # Website validation record
 
+**Revision:** all four independent findings were reproduced and fixed. Current results, the six-domain review of the affected surfaces, and before/after evidence are in [the revision validation record](revision/validation.md). The original implementation record follows; its earlier bundle and performance measurements are historical. Current export and section screenshots were refreshed during the revision.
+
 ## Scope and outcome
 
 **Complete for the requested implementation and production-export scope**, with the external/device limitations below. This is the worker's own evidence, not independent certification. No real wallet transaction was signed or broadcast, and nothing was published or deployed.

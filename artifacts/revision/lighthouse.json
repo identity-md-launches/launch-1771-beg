@@ -1,0 +1,106 @@
+{
+  "mode": "Revision production export at /preview/: Lighthouse default mobile simulated throttling, cold cache and real public RPC reads.",
+  "fetchTime": "2026-10-15T07:42:38.886Z",
+  "lighthouseVersion": "13.0.1",
+  "categories": {
+    "performance": 87,
+    "accessibility": 100,
+    "best-practices": 100,
+    "seo": 100
+  },
+  "metrics": {
+    "first-contentful-paint": {
+      "value": 2622.2290000000003,
+      "display": "2.6 s"
+    },
+    "largest-contentful-paint": {
+      "value": 2662.2290000000003,
+      "display": "2.7 s"
+    },
+    "total-blocking-time": {
+      "value": 271,
+      "display": "270 ms"
+    },
+    "cumulative-layout-shift": {
+      "value": 0.050896260735092284,
+      "display": "0.051"
+    },
+    "speed-index": {
+      "value": 2622.2290000000003,
+      "display": "2.6 s"
+    }
+  },
+  "failedAudits": [
+    {
+      "id": "first-contentful-paint",
+      "title": "First Contentful Paint",
+      "score": 0.63,
+      "displayValue": "2.6 s"
+    },
+    {
+      "id": "largest-contentful-paint",
+      "title": "Largest Contentful Paint",
+      "score": 0.86,
+      "displayValue": "2.7 s"
+    },
+    {
+      "id": "speed-index",
+      "title": "Speed Index",
+      "score": 0.97,
+      "displayValue": "2.6 s"
+    },
+    {
+      "id": "total-blocking-time",
+      "title": "Total Blocking Time",
+      "score": 0.82,
+      "displayValue": "270 ms"
+    },
+    {
+      "id": "max-potential-fid",
+      "title": "Max Potential First Input Delay",
+      "score": 0.62,
+      "displayValue": "210 ms"
+    },
+    {
+      "id": "cumulative-layout-shift",
+      "title": "Cumulative Layout Shift",
+      "score": 0.99,
+      "displayValue": "0.051"
+    },
+    {
+      "id": "interactive",
+      "title": "Time to Interactive",
+      "score": 0.91,
+      "displayValue": "3.6 s"
+    },
+    {
+      "id": "mainthread-work-breakdown",
+      "title": "Minimize main-thread work",
+      "score": 0,
+      "displayValue": "2.0 s"
+    },
+    {
+      "id": "unused-javascript",
+      "title": "Reduce unused JavaScript",
+      "score": 0,
+      "displayValue": "Est savings of 116 KiB"
+    },
+    {
+      "id": "cache-insight",
+      "title": "Use efficient cache lifetimes",
+      "score": 0,
+      "displayValue": "Est savings of 358 KiB"
+    },
+    {
+      "id": "network-dependency-tree-insight",
+      "title": "Network dependency tree",
+      "score": 0
+    },
+    {
+      "id": "render-blocking-insight",
+      "title": "Render blocking requests",
+      "score": 0,
+      "displayValue": "Est savings of 300 ms"
+    }
+  ]
+}

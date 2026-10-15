@@ -1,10 +1,22 @@
-# Build the Beg the Swarm mainnet website
+# Fix mobile balances and oracle action states
 
-Adds a complete static app for the existing BEG vault. Visitors can read cached/live chain state without a wallet, submit a UTF-8-bounded plea, explore exact contract odds, follow batches, claim rewards and refunds, and perform permissionless keeper and oracle-funding actions. Every write verifies the contract and simulates the exact transaction before asking the wallet to send it.
+Valid seven-digit balances previously overflowed the phone statistics, and Trade $BEG was hidden. Phone statistics now use one column at the existing type size, while header actions wrap to keep Trade reachable. Invalid donations show a specific inline error and cannot appear approved. Close batch stays disabled until its read-only contract preflight succeeds, explains insufficient oracle funding, and rechecks changed state. Every write retains the existing simulation immediately before sending.
 
-The new frontend source and npm lockfile live in `web/`; the complete relative-URL production export is in `dist/`. Existing contracts, Solidity dependencies and build configuration are unchanged.
+The focused source changes and regression tests live in `web/`; the rebuilt relative-URL production export is in `dist/`. Existing contracts, ABIs, wallet connector, transaction builder, dependency manifests/locks and build configuration are unchanged.
 
-Validation: production build and typecheck pass; 12 focused tests pass; all eight write flows pass in a browser with simulated RPC/wallet responses; the final design probe passes 16/16. Final Lighthouse mobile performance scores are 91 and 88, accessibility 100 in both runs. See [the full validation record](validation.md) for actual scope and limitations. No transaction was broadcast. WebKit and physical wallet handoffs remain unverified.
+Validation: all four reports reproduced before editing; production build and typecheck pass; 12 focused tests and all eight simulated write flows pass. Regression cases cover 320/375/390/600/768/1440px, invalid amount recovery, pending/unfunded Close, budget changes, send-time rejection and late replies. The design probe passes 16/16. Revision Lighthouse mobile performance is 87; accessibility, best practices and SEO are 100. See [the revision validation record](revision/validation.md) and [reviewer responses](../.imd-responses.json). No transaction was broadcast. WebKit and physical wallet handoffs remain unverified.
+
+## Regression screenshots
+
+These images use the review's synthetic balance and wallet fixtures, never seeded into the app.
+
+![Complete balances at 320px](revision/stats-320.jpg)
+
+[375px statistics](revision/stats-375.jpg) · [390px first screen with Trade](revision/first-screen-390.jpg)
+
+![Invalid donation with recovery message](revision/invalid-funding.jpg)
+
+![Unfunded Close disabled with explanation](revision/unfunded-close.jpg)
 
 ## First screen and complete page
 

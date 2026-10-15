@@ -9,9 +9,11 @@ import {
   encodeFunctionResult,
   encodeEventTopics,
   encodeAbiParameters,
+  encodeErrorResult,
   getAddress,
   toHex,
 } from "viem";
+import { revisionChecks } from "./revision-browser.mjs";
 const { chromium, webkit } = await import(
   process.env.BEG_PLAYWRIGHT || "playwright"
 );
@@ -156,7 +158,7 @@ logs.push(
     [100, 4, 8000000n * 10n ** 18n, 50000000000000000n],
   ),
 );
-function fixture() {
+function fixture(options = {}) {
   let allowance = 0n,
     credit = [123n * 10n ** 18n, 5000000000000000n],
     duplicate = false,
@@ -166,6 +168,7 @@ function fixture() {
   return {
     simulations,
     sends,
+    options,
     setDuplicate: (value) => {
       duplicate = value;
     },
@@ -174,6 +177,9 @@ function fixture() {
     },
     async route(route) {
       const body = route.request().postDataJSON();
+      if (options.closeGate && !Array.isArray(body) && body.method === "eth_call" && body.params[0].from &&
+          decodeFunctionData({ abi: vaultAbi, data: body.params[0].data }).functionName === "closeBatch")
+        await options.closeGate;
       function one(q) {
         let result;
         try {
@@ -205,6 +211,11 @@ function fixture() {
               });
             if (tx.from) {
               simulations.push(tx);
+              if (name === "closeBatch" && options.closeError)
+                return {
+                  jsonrpc: "2.0", id: q.id,
+                  error: { code: 3, message: "execution reverted", data: encodeErrorResult({ abi: vaultAbi, errorName: options.closeError }) },
+                };
               if (revert)
                 return {
                   jsonrpc: "2.0",
@@ -229,9 +240,10 @@ function fixture() {
                 claimable: credit,
                 allowance,
                 balanceOf: 5n * 10n ** 18n,
+                ...options.reads,
               };
               let value = reads[name];
-              if (name === "getBatch") value = batches[String(args[0])];
+              if (name === "getBatch") value = { ...batches[String(args[0])], ...options.batches?.[String(args[0])] };
               if (name === "oddsFor") {
                 const s = args[0],
                   j = 1n + (199n * s) / 100n,
@@ -284,13 +296,13 @@ function fixture() {
     },
   };
 }
-async function mockPage(browser) {
+async function mockPage(browser, options = {}) {
   const context = await browser.newContext({
-    viewport: { width: 390, height: 844 },
+    viewport: options.viewport || { width: 390, height: 844 },
     reducedMotion: "reduce",
   });
   const page = await context.newPage();
-  const f = fixture();
+  const f = fixture(options);
   await page.route(
     /^https:\/\/(ethereum-rpc\.publicnode\.com|eth\.llamarpc\.com|cloudflare-eth\.com)\/?$/,
     (r) => f.route(r),
@@ -342,7 +354,8 @@ async function mockPage(browser) {
     { account },
   );
   await page.goto(url);
-  await page.waitForFunction(() => document.body.innerText.includes("800M"));
+  await page.waitForFunction(() => document.querySelector(".stat-value")?.innerText.includes("ETH") &&
+    !document.querySelector(".stat-value")?.innerText.includes("—"));
   await page.waitForFunction(() =>
     document.body.innerText.includes("All indexed events"),
   );
@@ -351,6 +364,9 @@ async function mockPage(browser) {
 let browser;
 try {
   browser = await chromium.launch({ headless: true, args: ["--no-sandbox"] });
+  if (process.argv.includes("--revision") || process.argv.includes("--reproduce")) {
+    await revisionChecks({ browser, mockPage, root, reproduce: process.argv.includes("--reproduce") });
+  } else {
   const { page, context, f } = await mockPage(browser);
   const pageErrors = [];
   page.on("pageerror", (e) => pageErrors.push(e.message));
@@ -750,6 +766,7 @@ try {
     ),
   );
   console.log(JSON.stringify({ passed: true, results }, null, 2));
+  }
 } finally {
   await browser?.close();
   await new Promise((r) => server.close(r));

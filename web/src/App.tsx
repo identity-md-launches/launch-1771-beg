@@ -3,6 +3,7 @@ import { formatEther, parseUnits, type Hex } from "viem";
 import { BEG, BOUNTY, CACHE_KEY, EXPLORER, REPO, TRADE } from "./config";
 import { contractOdds, loadUser, type UserState } from "./chain";
 import { useChain } from "./useChain";
+import { useClosePreflight } from "./useClosePreflight";
 import { useWallet } from "./wallet";
 import { WalletSheet } from "./WalletSheet";
 import { Swarm } from "./Swarm";
@@ -21,6 +22,8 @@ import {
 import { humanError } from "./errors";
 import { receipt, sendAction, type Action } from "./transactions";
 const Arrow = () => <span aria-hidden="true">↗</span>;
+const INVALID_FUND_AMOUNT =
+  "Enter an amount greater than zero, with at most 18 decimal places.";
 const Eye = () => (
   <svg
     width="30"
@@ -327,6 +330,8 @@ export default function App() {
       if (action.name === "attempt") setFormError(text);
       if (action.name === "approve" || action.name === "fundOracle")
         setFundError(text);
+      if (action.name === "closeBatch")
+        closePreflight.reject(action.id.toString(), text);
       setTxBusy(false);
       txLock.current = false;
     }
@@ -346,13 +351,13 @@ export default function App() {
     if (!/^\d+(\.\d{0,18})?$/.test(fund)) throw Error();
     fundAmount = parseUnits(fund, 18);
   } catch {
-    /* validated when clicked */
+    /* Invalid input remains zero and gets an inline validation message. */
   }
+  const fundValidation = fundAmount <= 0n ? INVALID_FUND_AMOUNT : "";
+  const fundMessage = fundValidation || fundError;
   const funding = (name: "approve" | "fundOracle") => {
     if (fundAmount <= 0n) {
-      setFundError(
-        "Enter an amount greater than zero, with at most 18 decimal places.",
-      );
+      setFundError(INVALID_FUND_AMOUNT);
       return;
     }
     if (user && fundAmount > user.imd) {
@@ -362,7 +367,7 @@ export default function App() {
     setFundError("");
     void run({ name, amount: fundAmount });
   };
-  const needsApproval = !user || user.allowance < fundAmount;
+  const needsApproval = fundAmount <= 0n || !user || user.allowance < fundAmount;
   const busy = txBusy || txStatus === "pending";
   const canWrite = fresh && wallet.chain === "0x1" && !!wallet.address && !busy;
   const allAttempts = useMemo(
@@ -406,6 +411,12 @@ export default function App() {
   const batches = Object.values(state?.batches || {})
     .filter((b) => b.size > 0 && b.status < 3)
     .sort((a, b) => Number(BigInt(a.id) - BigInt(b.id)));
+  const closePreflight = useClosePreflight(
+    state,
+    wallet.address,
+    fresh && wallet.chain === "0x1",
+    batchCount,
+  );
   const historyComplete =
     !!chain.history && !!state && chain.history.cursor >= state.block;
   const eventStatus = historyComplete
@@ -1032,6 +1043,12 @@ export default function App() {
                     state?.timestamp ?? 0,
                     state?.block ?? 0n,
                   );
+                  const closeCheck = closePreflight.checks[b.id];
+                  const closeMessage =
+                    a.close && state?.oracle !== 0n && fresh &&
+                    wallet.address && wallet.chain === "0x1"
+                      ? closeCheck?.message ?? "Checking whether this batch can close…"
+                      : "";
                   return (
                     <div className="batch-row" key={b.id}>
                       <div className="batch-row-top">
@@ -1060,12 +1077,21 @@ export default function App() {
                           remaining tier.
                         </p>
                       )}
+                      <p
+                        id={`close-check-${b.id}`}
+                        className="small muted"
+                        role="status"
+                      >
+                        {closeMessage}
+                      </p>
                       <div className="keeper-actions">
                         <button
                           className="button"
                           disabled={
-                            !canWrite || !a.close || state?.oracle === 0n
+                            !canWrite || !a.close || state?.oracle === 0n ||
+                            !closeCheck?.ready
                           }
+                          aria-describedby={`close-check-${b.id}`}
                           onClick={() =>
                             void run({ name: "closeBatch", id: BigInt(b.id) })
                           }
@@ -1136,7 +1162,7 @@ export default function App() {
                     setFundError("");
                   }}
                   aria-describedby="fund-hint fund-error"
-                  aria-invalid={!!fundError}
+                  aria-invalid={!!fundMessage}
                 />
                 <span className="mono muted">IMD</span>
               </div>
@@ -1167,7 +1193,7 @@ export default function App() {
                 </button>
               </div>
               <p id="fund-error" role="alert" className="error-text">
-                {fundError}
+                {fundMessage}
               </p>
               {!wallet.address && (
                 <button className="text-button" onClick={openWallet}>

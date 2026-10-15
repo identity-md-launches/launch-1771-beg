@@ -1,0 +1,22 @@
+{
+  "candidateGitBundleMeasuredBytes": 2305945,
+  "completeGitBundleConservativeUpperBoundBytes": 4194304,
+  "maximumBytes": 8388608,
+  "method": "Full clone of the supplied upstream, checked out at the pinned source commit, overlaid with the complete submission tree and committed only in a temporary audit repository; git bundle --all measured. Task repository Git metadata is unchanged.",
+  "fileCount": 178,
+  "uncompressedTreeBytes": 4779421,
+  "pathBytes": {
+    "web/": 747694,
+    "dist/": 681878,
+    "artifacts/": 2026180,
+    "lib/": 1027711
+  },
+  "generatedDependenciesIncluded": false,
+  "submodules": false,
+  "protectedPathsUnchanged": true,
+  "ignoreFileChange": "Only !.imd-responses.json added to the root ignore file; within its explicit 512-byte budget. All generated dependencies and caches remain excluded.",
+  "relativeEntrypointAssetsExist": true,
+  "shareImageIsPNG": true,
+  "reviewResponses": 4,
+  "measurementNote": "Candidate bundle includes the preceding audit record. A final bundle with this updated record was checked against the complete conservative upper bound."
+}

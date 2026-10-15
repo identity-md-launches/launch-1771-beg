@@ -2,6 +2,8 @@
 
 The only ignore-file edits are `.gitignore` (at most 512 bytes) and new `web/.gitignore` (at most 256 bytes). They exclude generated dependencies and caches at every depth, and explicitly include the required static export and evidence. No build or dependency configuration of the existing Solidity project changes.
 
+Revision: the root `.gitignore` adds only `!.imd-responses.json` so the required reviewer answers are included despite the task metadata exclusion. This stays within the existing 512-byte root ignore budget. No generated dependency or cache path is included.
+
 | Path | Budget | Includes |
 | --- | ---: | --- |
 | `web/` excluding ignored generated dependencies | 1.5 MiB | Source, exact ABIs, package manifest and lockfile, local assets, tests |

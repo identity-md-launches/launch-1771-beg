@@ -1,0 +1,329 @@
+{
+  "mode": "before",
+  "layouts": [
+    {
+      "width": 375,
+      "scrollWidth": 380,
+      "panel": {
+        "left": 20,
+        "right": 355,
+        "width": 335
+      },
+      "values": [
+        {
+          "text": "0.12346 ETH",
+          "left": 37,
+          "right": 149.84375,
+          "fontSize": "20px"
+        },
+        {
+          "text": "9,999,999.123 BEG",
+          "left": 182.84375,
+          "right": 364.09375,
+          "fontSize": "20px"
+        },
+        {
+          "text": "5",
+          "left": 37,
+          "right": 48.40625,
+          "fontSize": "20px"
+        },
+        {
+          "text": "0 / 20",
+          "left": 182.84375,
+          "right": 230.265625,
+          "fontSize": "20px"
+        },
+        {
+          "text": "0.1 IMD",
+          "left": 296.859375,
+          "right": 364.09375,
+          "fontSize": "20px"
+        }
+      ],
+      "columns": "144.844px 214.25px",
+      "tradeVisible": false,
+      "tradeDisplay": "none",
+      "primaryBottom": 490.6875
+    },
+    {
+      "width": 320,
+      "scrollWidth": 360,
+      "panel": {
+        "left": 16,
+        "right": 304,
+        "width": 288
+      },
+      "values": [
+        {
+          "text": "0.12346 ETH",
+          "left": 29,
+          "right": 141.84375,
+          "fontSize": "20px"
+        },
+        {
+          "text": "9,999,999.123 BEG",
+          "left": 166.84375,
+          "right": 348.09375,
+          "fontSize": "20px"
+        },
+        {
+          "text": "5",
+          "left": 29,
+          "right": 40.40625,
+          "fontSize": "20px"
+        },
+        {
+          "text": "0 / 20",
+          "left": 166.84375,
+          "right": 214.265625,
+          "fontSize": "20px"
+        },
+        {
+          "text": "0.1 IMD",
+          "left": 276.859375,
+          "right": 344.09375,
+          "fontSize": "20px"
+        }
+      ],
+      "columns": "136.844px 206.25px",
+      "tradeVisible": false,
+      "tradeDisplay": "none",
+      "primaryBottom": 485.6875
+    },
+    {
+      "width": 390,
+      "scrollWidth": 390,
+      "panel": {
+        "left": 20,
+        "right": 370,
+        "width": 350
+      },
+      "values": [
+        {
+          "text": "0.12346 ETH",
+          "left": 37,
+          "right": 149.84375,
+          "fontSize": "20px"
+        },
+        {
+          "text": "9,999,999.123 BEG",
+          "left": 182.84375,
+          "right": 364.09375,
+          "fontSize": "20px"
+        },
+        {
+          "text": "5",
+          "left": 37,
+          "right": 48.40625,
+          "fontSize": "20px"
+        },
+        {
+          "text": "0 / 20",
+          "left": 182.84375,
+          "right": 230.265625,
+          "fontSize": "20px"
+        },
+        {
+          "text": "0.1 IMD",
+          "left": 296.859375,
+          "right": 364.09375,
+          "fontSize": "20px"
+        }
+      ],
+      "columns": "144.844px 214.25px",
+      "tradeVisible": false,
+      "tradeDisplay": "none",
+      "primaryBottom": 490.6875
+    },
+    {
+      "width": 600,
+      "scrollWidth": 600,
+      "panel": {
+        "left": 20,
+        "right": 580,
+        "width": 560
+      },
+      "values": [
+        {
+          "text": "0.12346 ETH",
+          "left": 37,
+          "right": 149.84375,
+          "fontSize": "20px"
+        },
+        {
+          "text": "9,999,999.123 BEG",
+          "left": 317,
+          "right": 498.25,
+          "fontSize": "20px"
+        },
+        {
+          "text": "5",
+          "left": 37,
+          "right": 48.40625,
+          "fontSize": "20px"
+        },
+        {
+          "text": "0 / 20",
+          "left": 317,
+          "right": 364.421875,
+          "fontSize": "20px"
+        },
+        {
+          "text": "0.1 IMD",
+          "left": 495.765625,
+          "right": 563,
+          "fontSize": "20px"
+        }
+      ],
+      "columns": "279px 279px",
+      "tradeVisible": false,
+      "tradeDisplay": "none",
+      "primaryBottom": 490.6875
+    },
+    {
+      "width": 768,
+      "scrollWidth": 768,
+      "panel": {
+        "left": 32,
+        "right": 736,
+        "width": 704
+      },
+      "values": [
+        {
+          "text": "0.12346 ETH",
+          "left": 57,
+          "right": 225.625,
+          "fontSize": "32px"
+        },
+        {
+          "text": "9,999,999.123 BEG",
+          "left": 274.625,
+          "right": 550.796875,
+          "fontSize": "32px"
+        },
+        {
+          "text": "5",
+          "left": 599.796875,
+          "right": 617.734375,
+          "fontSize": "32px"
+        },
+        {
+          "text": "0 / 20",
+          "left": 57,
+          "right": 116.953125,
+          "fontSize": "32px"
+        },
+        {
+          "text": "0.1 IMD",
+          "left": 274.625,
+          "right": 371.5625,
+          "fontSize": "32px"
+        }
+      ],
+      "columns": "216.625px 325.172px 160.203px",
+      "tradeVisible": true,
+      "tradeDisplay": "flex",
+      "primaryBottom": 585.015625
+    },
+    {
+      "width": 1440,
+      "scrollWidth": 1440,
+      "panel": {
+        "left": 128,
+        "right": 1312,
+        "width": 1184
+      },
+      "values": [
+        {
+          "text": "0.12346 ETH",
+          "left": 153,
+          "right": 321.625,
+          "fontSize": "32px"
+        },
+        {
+          "text": "9,999,999.123 BEG",
+          "left": 400.328125,
+          "right": 676.5,
+          "fontSize": "32px"
+        },
+        {
+          "text": "5",
+          "left": 725.5,
+          "right": 743.4375,
+          "fontSize": "32px"
+        },
+        {
+          "text": "0 / 20",
+          "left": 907.578125,
+          "right": 967.53125,
+          "fontSize": "32px"
+        },
+        {
+          "text": "0.1 IMD",
+          "left": 1121.78125,
+          "right": 1218.71875,
+          "fontSize": "32px"
+        }
+      ],
+      "columns": "246.328px 325.172px 182.078px 214.203px 214.219px",
+      "tradeVisible": true,
+      "tradeDisplay": "flex",
+      "primaryBottom": 640.359375
+    }
+  ],
+  "funding": [
+    {
+      "amount": "abc",
+      "invalid": "false",
+      "error": "",
+      "actions": [
+        {
+          "text": "IMD approved",
+          "disabled": true
+        },
+        {
+          "text": "2. Fund oracle ↗",
+          "disabled": true
+        }
+      ]
+    },
+    {
+      "amount": "0",
+      "invalid": "false",
+      "error": "",
+      "actions": [
+        {
+          "text": "IMD approved",
+          "disabled": true
+        },
+        {
+          "text": "2. Fund oracle ↗",
+          "disabled": true
+        }
+      ]
+    },
+    {
+      "amount": "0.1234567890123456789",
+      "invalid": "false",
+      "error": "",
+      "actions": [
+        {
+          "text": "IMD approved",
+          "disabled": true
+        },
+        {
+          "text": "2. Fund oracle ↗",
+          "disabled": true
+        }
+      ]
+    }
+  ],
+  "keeper": {
+    "enabledBefore": true,
+    "enabledAfter": true,
+    "error": "Transaction not sentThe oracle could not accept this batch. Add IMD in “Fund the oracle”, or try again later.×",
+    "walletSends": 0
+  },
+  "scriptErrors": []
+}
